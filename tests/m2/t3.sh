@@ -44,10 +44,10 @@ fi
 
 # 4. Session visible to hermes with its ACP session_id [H3]
 SID=$(jq -r '.acpSessionId // empty' "$HERE/logs/acp-session.json" 2>/dev/null)
-if [ -n "$SID" ] && hermes sessions 2>/dev/null | grep -q "${SID:0:8}"; then
+if [ -n "$SID" ] && hermes sessions list 2>/dev/null | grep -q "${SID:0:8}"; then
   ok 4 "hermes sessions lists the voice session ${SID:0:8}…"
 else
-  bad 4 "voice ACP session id not found in hermes sessions (sid=${SID:-none})"
+  bad 4 "voice ACP session id not in 'hermes sessions list' (sid=${SID:-none})"
 fi
 
 exit $FAIL
