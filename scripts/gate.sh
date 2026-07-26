@@ -6,6 +6,15 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 N="${1:?usage: gate.sh <milestone-number>}"
 FAIL=0
 
+# Only one gate at a time: concurrent runs fight over port 8787 and over the
+# deployment's concurrent-session limit [MS11], producing false failures.
+LOCK="/tmp/voice-gate.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "[gate] another gate run holds $LOCK — refusing to run concurrently"
+  exit 2
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
 # Live suites need Azure env (tenant quirk: mint by --subscription; see CLAUDE.md #1).
 export AZURE_TOKEN="$(az account get-access-token --subscription e1e5b742-d76b-4ce5-97d3-8d820bb33904 --resource https://ai.azure.com --query accessToken -o tsv)"
 export AZURE_OPENAI_ENDPOINT="https://ai103-resource-ruffin.openai.azure.com"
