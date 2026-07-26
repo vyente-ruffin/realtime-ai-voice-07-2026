@@ -32,6 +32,13 @@ export class AcpClient {
     this.buffer = "";
     this.chunks = [];
     this.pendingPermissions = new Map();
+    this.dead = false;
+  }
+
+  // A client whose child has exited must never be handed to a caller: the
+  // failure would surface as a broken turn instead of a transparent respawn.
+  isAlive() {
+    return Boolean(this.child) && !this.dead && this.child.exitCode === null;
   }
 
   async start() {
@@ -41,13 +48,14 @@ export class AcpClient {
       if (line) logger.debug("hermes stderr", { line: line.slice(0, 200) });
     });
     this.child.stdout.on("data", (data) => this.#onData(data));
-    this.child.on("exit", (code) => {
-      logger.info("ACP child exited", { code, sessionId: this.sessionId });
+    this.child.on("exit", (code, signal) => {
+      this.dead = true;
+      logger.info("ACP child exited", { code, signal, sessionId: this.sessionId });
       // Fail every in-flight request so callers surface an error instead of
       // hanging until timeout (M2.T2 graceful-failure gate).
       for (const [id, p] of this.pending) {
         this.pending.delete(id);
-        p.reject(new Error(`hermes acp exited (code ${code})`));
+        p.reject(new Error(`hermes acp exited (code ${code}, signal ${signal})`));
       }
     });
 

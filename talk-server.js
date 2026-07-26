@@ -117,6 +117,10 @@ let brain = null;
 let brainStarting = null;
 
 async function getBrain() {
+  if (brain && !brain.isAlive()) {
+    logger.warn("Brain child died between turns; respawning");
+    brain = null; // never hand out a corpse
+  }
   if (brain) return brain;
   if (brainStarting) return brainStarting;
   brainStarting = (async () => {
