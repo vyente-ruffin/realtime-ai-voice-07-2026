@@ -42,7 +42,8 @@ hermes send --help >/dev/null 2>&1 || { S_OK=0; echo "    (hermes send --help fa
 [ $S_OK -eq 1 ] && ok 4 "sessions / -z / send all answer" || bad 4 "a hermes CLI surface failed"
 
 # 5. Token mint works [MS1] — talk-server must be running (gate.sh starts it)
-EPH="$(curl -s -X POST http://localhost:8787/token | jq -r '.ephemeralKey // empty' 2>/dev/null)"
+AUTH="$(curl -s http://localhost:8787/ | sed -n 's/.*voice-auth" content="\([^"]*\)".*/\1/p')"
+EPH="$(curl -s -X POST http://localhost:8787/token -H "X-Voice-Auth: $AUTH" | jq -r '.ephemeralKey // empty' 2>/dev/null)"
 if [ -n "$EPH" ]; then
   ok 5 "ephemeral key minted (${EPH:0:6}…) [LIVE-6 expires_at recorded by gate.sh]"
 else

@@ -8,7 +8,8 @@ ok()  { echo "  PASS m1.t1.$1: $2"; }
 bad() { echo "  FAIL m1.t1.$1: $2"; FAIL=1; }
 
 # 1. Puppet flag accepted and applied (echo + logged session-config payload)
-R="$(curl -s -X POST http://localhost:8787/token -H 'Content-Type: application/json' -d '{"puppet":true}')"
+AUTH="$(curl -s http://localhost:8787/ | sed -n 's/.*voice-auth" content="\([^"]*\)".*/\1/p')"
+R="$(curl -s -X POST http://localhost:8787/token -H "X-Voice-Auth: $AUTH" -H 'Content-Type: application/json' -d '{"puppet":true}')"
 if echo "$R" | jq -e '.settings.puppet == true' >/dev/null 2>&1 && \
    grep -q '"create_response":false' "$HERE/logs/session-config.log" 2>/dev/null; then
   ok 1 "puppet flag echoed and create_response:false logged"

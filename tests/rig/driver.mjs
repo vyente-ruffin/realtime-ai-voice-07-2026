@@ -64,6 +64,12 @@ try {
   }
   logger.info("session connected", { puppet, wav });
 
+  // API auth token is injected into the served page (security hardening
+  // 2026-07-26); the rig reads it from the DOM like any legitimate client.
+  const voiceAuth = await page.evaluate(
+    () => document.querySelector('meta[name="voice-auth"]').content
+  );
+
   // Optional scripted injections: wait for each response.done before the next.
   if (speakFile) {
     const corpus = JSON.parse(readFileSync(speakFile, "utf8"));
@@ -73,7 +79,7 @@ try {
       );
       const resp = await fetch("http://localhost:8787/speak", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Voice-Auth": voiceAuth },
         body: JSON.stringify({ text }),
       });
       if (!resp.ok) {
