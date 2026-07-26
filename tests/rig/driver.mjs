@@ -53,7 +53,8 @@ try {
   await page.waitForFunction(
     () => {
       const s = document.getElementById("status").textContent;
-      return s.includes("Connected") || s.startsWith("❌");
+      const ready = window.__voiceLabEvents.some((e) => e.type === "session.created");
+      return ready || s.startsWith("❌");
     },
     { timeout: 30_000 }
   );
@@ -103,7 +104,19 @@ try {
   logger.info("events dumped", { out, count: events.length });
   process.exit(0);
 } catch (err) {
-  logger.error("rig failed", { error: err.message });
+  // Preserve diagnostics: a timeout with no event dump hides the cause.
+  try {
+    const pages = browser.contexts().flatMap((c) => c.pages());
+    if (pages.length) {
+      const events = await pages[0].evaluate(() => window.__voiceLabEvents ?? []);
+      writeFileSync(out, JSON.stringify({ failed: true, error: err.message, events }, null, 2));
+      logger.error("rig failed — events preserved", { error: err.message, out, count: events.length });
+    } else {
+      logger.error("rig failed", { error: err.message });
+    }
+  } catch {
+    logger.error("rig failed", { error: err.message });
+  }
   process.exit(1);
 } finally {
   await browser.close();

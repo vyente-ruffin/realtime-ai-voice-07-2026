@@ -16,8 +16,10 @@ ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=24000:cl=mono -t 1.2 \
   -c:a pcm_s16le "$TMP/gap.wav"
 ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=24000:cl=mono -t 2.5 \
   -c:a pcm_s16le "$TMP/tail.wav"
-# 0.8s lead-in silence so the page is fully connected before speech starts
-ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=24000:cl=mono -t 0.8 \
+# 8s lead-in silence: the fake mic begins feeding audio at getUserMedia time,
+# but the realtime session only receives after SDP negotiation completes
+# (~4-6s observed). Evidence: with 0.8s, "Turn one." arrived as "Fun.".
+ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=24000:cl=mono -t 8 \
   -c:a pcm_s16le "$TMP/lead.wav"
 echo "file '$TMP/lead.wav'" >> "$LIST"
 
