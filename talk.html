@@ -3,96 +3,240 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Talk to gpt-realtime-2.1</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+<title>Voice Lab — gpt-realtime-2.1</title>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;
-  }
-  h1 { font-size: 1.3rem; }
-  fieldset {
-    border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem;
-    display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 0.8rem;
-    align-items: center; padding: 1rem;
-  }
-  fieldset:disabled { opacity: 0.55; }
-  legend { font-weight: 600; padding: 0 0.4rem; }
-  textarea { width: 100%; min-height: 3.2rem; font: inherit; border-radius: 6px; }
-  select, input[type=range] { font-size: 1rem; max-width: 100%; }
-  button {
-    font-size: 1.1rem; padding: 0.6rem 1.4rem; border-radius: 8px;
-    border: 1px solid #888; cursor: pointer; margin-right: 0.5rem;
-  }
-  button:disabled { opacity: 0.4; cursor: default; }
-  #muteBtn.muted { background: #d33; color: #fff; border-color: #d33; }
-  #status { margin: 0.8rem 0; font-weight: 600; }
-  #viz { width: 100%; height: 150px; display: block; border: 1px solid #8884;
-    border-radius: 8px; margin-bottom: 0.8rem; }
-  .chat { border: 1px solid #8884; border-radius: 8px; padding: 1rem;
-    min-height: 160px; }
-  .you { color: #2f6fdd; margin: 0.4rem 0; }
-  .model { margin: 0.4rem 0; }
-  .meta { opacity: 0.6; font-size: 0.85rem; margin-top: 1rem;
-    white-space: pre-wrap; }
-  .val { font-variant-numeric: tabular-nums; opacity: 0.75; font-size: 0.9rem; }
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --ink: #12141c;
+  --panel: #1a1e2a;
+  --well: #141824;
+  --line: #2a3042;
+  --text: #e8e6df;
+  --dim: #8b91a5;
+  --you: #6aa5ff;
+  --model: #ffb454;
+  --danger: #ff6a66;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ink); color: var(--text);
+  font-family: "Space Grotesk", -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5; min-height: 100vh;
+}
+.wrap { max-width: 1060px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+
+header { display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+}
+h1 { font-size: 1.5rem; font-weight: 700; margin: 0.1rem 0 0; letter-spacing: -0.01em; }
+h1 .accent { color: var(--model); }
+
+.app { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 880px) {
+  .app { grid-template-columns: 1fr; }
+  .stage { order: -1; }
+}
+
+/* ---- Channel strip (settings) ---- */
+fieldset#settings {
+  border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+  padding: 1.1rem 1.1rem 1.25rem; margin: 0; display: grid; gap: 0.9rem;
+}
+fieldset#settings:disabled { opacity: 0.45; }
+legend {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim); padding: 0 0.5rem;
+}
+.field { display: grid; gap: 0.35rem; }
+.field > label {
+  font-family: "IBM Plex Mono", monospace; font-size: 0.68rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--dim);
+}
+.val { color: var(--model); font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem; text-transform: none; letter-spacing: 0; }
+select, textarea {
+  width: 100%; background: var(--well); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; padding: 0.55rem 0.65rem;
+  font: 0.92rem "Space Grotesk", sans-serif;
+}
+textarea { min-height: 4.6rem; resize: vertical; line-height: 1.45; }
+input[type=range] { width: 100%; accent-color: var(--model); }
+select:focus-visible, textarea:focus-visible, input:focus-visible,
+button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--model); outline-offset: 2px;
+}
+
+/* ---- Stage ---- */
+.stage { display: grid; gap: 1rem; }
+.orbPanel {
+  position: relative; border: 1px solid var(--line); border-radius: 14px;
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 45%, #1d2333 0%, var(--well) 70%);
+  overflow: hidden;
+}
+#viz { width: 100%; height: 230px; display: block; }
+#lamp {
+  position: absolute; top: 0.8rem; right: 0.9rem;
+  font-family: "IBM Plex Mono", monospace; font-size: 0.66rem;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 0.28rem 0.65rem; border-radius: 99px;
+  border: 1px solid var(--line); color: var(--dim); background: rgba(0,0,0,0.25);
+}
+#lamp.live {
+  color: #201405; background: var(--model); border-color: var(--model);
+  box-shadow: 0 0 18px rgba(255,180,84,0.45);
+  animation: lampPulse 2.4s ease-in-out infinite;
+}
+@keyframes lampPulse {
+  50% { box-shadow: 0 0 6px rgba(255,180,84,0.25); }
+}
+#status {
+  position: absolute; left: 0.9rem; top: 0.8rem;
+  font-family: "IBM Plex Mono", monospace; font-size: 0.72rem; color: var(--dim);
+  max-width: 70%;
+}
+
+.transport { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+button {
+  font: 500 0.95rem "Space Grotesk", sans-serif;
+  padding: 0.65rem 1.5rem; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--dim); }
+button:disabled { opacity: 0.35; cursor: default; }
+#startBtn { background: var(--model); border-color: var(--model); color: #201405; font-weight: 700; }
+#startBtn:hover:not(:disabled) { background: #ffc476; }
+#muteBtn.muted { background: var(--danger); border-color: var(--danger); color: #2a0b0a; font-weight: 700; }
+
+/* ---- Transcript ---- */
+.chat {
+  border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+  padding: 1.1rem 1.2rem; min-height: 180px; max-height: 46vh; overflow-y: auto;
+}
+.chat:empty::before {
+  content: "Transcript appears here once you start talking.";
+  font-family: "IBM Plex Mono", monospace; font-size: 0.78rem; color: var(--dim);
+}
+.you, .model { margin: 0.55rem 0; padding-left: 0.85rem; }
+.you { border-left: 2px solid var(--you); color: var(--you); }
+.model { border-left: 2px solid var(--model); }
+
+details.log { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+details.log summary {
+  cursor: pointer; padding: 0.6rem 1.1rem;
+  font-family: "IBM Plex Mono", monospace; font-size: 0.7rem;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+  list-style-position: inside;
+}
+.meta {
+  padding: 0 1.1rem 0.9rem; color: var(--dim);
+  font-family: "IBM Plex Mono", monospace; font-size: 0.74rem;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #lamp.live { animation: none; }
+  button { transition: none; }
+}
 </style>
 </head>
 <body>
-<h1>🎙️ Talk to gpt-realtime-2.1</h1>
-<p>Tune the session, click <b>Start</b>, allow the mic, and just speak. Settings lock while a session is live.</p>
+<div class="wrap">
+<header>
+  <div>
+    <div class="eyebrow">Azure AI Foundry · WebRTC · keyless</div>
+    <h1>Voice Lab <span class="accent">/ gpt-realtime-2.1</span></h1>
+  </div>
+  <div class="eyebrow">blue = you · amber = model</div>
+</header>
+
+<div class="app">
 
 <fieldset id="settings">
-  <legend>Session settings</legend>
+  <legend>Channel strip</legend>
 
-  <label for="personaSel">Persona</label>
-  <select id="personaSel">
-    <option value="assistant" selected>Helpful assistant</option>
-    <option value="interviewer">Job interviewer</option>
-    <option value="tutor">Spanish tutor</option>
-    <option value="storyteller">Storyteller</option>
-    <option value="custom">Custom (edit below)</option>
-  </select>
+  <div class="field">
+    <label for="personaSel">Persona</label>
+    <select id="personaSel">
+      <option value="assistant" selected>Helpful assistant</option>
+      <option value="interviewer">Job interviewer</option>
+      <option value="tutor">Spanish tutor</option>
+      <option value="storyteller">Storyteller</option>
+      <option value="custom">Custom (edit below)</option>
+    </select>
+  </div>
 
-  <label for="instructions">Instructions</label>
-  <textarea id="instructions"></textarea>
+  <div class="field">
+    <label for="instructions">Instructions</label>
+    <textarea id="instructions"></textarea>
+  </div>
 
-  <label for="voiceSel">Voice</label>
-  <select id="voiceSel">
-    <option value="cedar" selected>cedar — natural male (newest)</option>
-    <option value="marin">marin — natural female (newest)</option>
-    <option value="alloy">alloy — neutral</option>
-    <option value="ash">ash — warm male</option>
-    <option value="ballad">ballad — expressive British male</option>
-    <option value="coral">coral — warm female</option>
-    <option value="echo">echo — clear male</option>
-    <option value="sage">sage — soft female</option>
-    <option value="shimmer">shimmer — bright female</option>
-    <option value="verse">verse — versatile male</option>
-  </select>
+  <div class="field">
+    <label for="voiceSel">Voice</label>
+    <select id="voiceSel">
+      <option value="cedar" selected>cedar — natural male (newest)</option>
+      <option value="marin">marin — natural female (newest)</option>
+      <option value="alloy">alloy — neutral</option>
+      <option value="ash">ash — warm male</option>
+      <option value="ballad">ballad — expressive British male</option>
+      <option value="coral">coral — warm female</option>
+      <option value="echo">echo — clear male</option>
+      <option value="sage">sage — soft female</option>
+      <option value="shimmer">shimmer — bright female</option>
+      <option value="verse">verse — versatile male</option>
+    </select>
+  </div>
 
-  <label for="speed">Speed <span class="val" id="speedVal">1.0×</span></label>
-  <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1.0">
+  <div class="field">
+    <label for="speed">Speed <span class="val" id="speedVal">1.0×</span></label>
+    <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1.0">
+  </div>
 
-  <label for="patience">Patience <span class="val" id="patienceVal">500 ms</span></label>
-  <input type="range" id="patience" min="200" max="2000" step="100" value="500">
+  <div class="field">
+    <label for="patience">Patience <span class="val" id="patienceVal">500 ms</span></label>
+    <input type="range" id="patience" min="200" max="2000" step="100" value="500">
+  </div>
 
-  <label for="noiseSel">Noise reduction</label>
-  <select id="noiseSel">
-    <option value="">Off</option>
-    <option value="near_field" selected>Near field (headset / close mic)</option>
-    <option value="far_field">Far field (room / laptop mic)</option>
-  </select>
+  <div class="field">
+    <label for="noiseSel">Noise reduction</label>
+    <select id="noiseSel">
+      <option value="">Off</option>
+      <option value="near_field" selected>Near field (headset / close mic)</option>
+      <option value="far_field">Far field (room / laptop mic)</option>
+    </select>
+  </div>
 </fieldset>
 
-<button id="startBtn">Start</button>
-<button id="stopBtn" disabled>Stop</button>
-<button id="muteBtn" disabled>🎤 Mute</button>
+<div class="stage">
+  <div class="orbPanel">
+    <div id="status">Idle</div>
+    <div id="lamp">Standby</div>
+    <canvas id="viz"></canvas>
+  </div>
 
-<div id="status">Idle</div>
-<canvas id="viz"></canvas>
-<div class="chat" id="chat"></div>
-<div class="meta" id="meta"></div>
+  <div class="transport">
+    <button id="startBtn">Start session</button>
+    <button id="stopBtn" disabled>End</button>
+    <button id="muteBtn" disabled>🎤 Mute</button>
+  </div>
+
+  <div class="chat" id="chat"></div>
+
+  <details class="log">
+    <summary>Session log</summary>
+    <div class="meta" id="meta"></div>
+  </details>
+</div>
+
+</div>
+</div>
 
 <script>
 const PERSONAS = {
@@ -126,6 +270,7 @@ const speedEl = $("speed"), speedVal = $("speedVal");
 const patienceEl = $("patience"), patienceVal = $("patienceVal");
 const noiseSel = $("noiseSel");
 const statusEl = $("status"), chatEl = $("chat"), metaEl = $("meta");
+const lampEl = $("lamp");
 const viz = $("viz"), vctx = viz.getContext("2d");
 
 instructionsEl.value = PERSONAS.assistant;
@@ -149,6 +294,10 @@ patienceEl.addEventListener("input", () => {
 });
 
 function setStatus(text) { statusEl.textContent = text; }
+function setLamp(live) {
+  lampEl.textContent = live ? "● Live" : "Standby";
+  lampEl.classList.toggle("live", live);
+}
 function logMeta(text) { metaEl.textContent += text + "\n"; }
 
 let currentModelLine = null;
@@ -225,7 +374,7 @@ function handleEvent(event) {
       currentModelLine = null;
       break;
     case "response.done":
-      setStatus(muted ? "🔇 Muted" : "🟢 Your turn — keep talking or press Stop");
+      setStatus(muted ? "🔇 Muted" : "🟢 Your turn — keep talking or press End");
       break;
     case "error":
       logMeta("Error event: " + JSON.stringify(event));
@@ -233,7 +382,7 @@ function handleEvent(event) {
   }
 }
 
-// --- Visualization: two live level bars (you vs model) ---
+// --- Orb visualization ---
 function levelFrom(analyser, buf) {
   analyser.getByteTimeDomainData(buf);
   let sum = 0;
@@ -265,10 +414,10 @@ function drawViz() {
   const breathe = 1 + 0.03 * Math.sin(performance.now() / 600);
   const baseR = Math.min(w, h) * 0.22 * breathe;
 
-  // Core = the model's voice (green glow that swells as it speaks)
+  // Core = the model's voice (amber glow that swells as it speaks)
   const coreR = baseR * (1 + modelLevelSm * 1.1);
   const glow = vctx.createRadialGradient(cx, cy, coreR * 0.1, cx, cy, coreR * 1.6);
-  const coreColor = muted ? "136,136,136" : "47,164,99";
+  const coreColor = muted ? "139,145,165" : "255,180,84";
   glow.addColorStop(0, `rgba(${coreColor},0.95)`);
   glow.addColorStop(0.55, `rgba(${coreColor},${0.35 + modelLevelSm * 0.5})`);
   glow.addColorStop(1, `rgba(${coreColor},0)`);
@@ -281,27 +430,54 @@ function drawViz() {
   const ringR = coreR * 1.15 + baseR * micLevelSm * 1.4;
   vctx.lineWidth = (2 + micLevelSm * 10) * devicePixelRatio;
   vctx.strokeStyle = muted
-    ? "rgba(160,160,160,0.35)"
-    : `rgba(47,111,221,${0.35 + micLevelSm * 0.65})`;
+    ? "rgba(139,145,165,0.35)"
+    : `rgba(106,165,255,${0.35 + micLevelSm * 0.65})`;
   vctx.beginPath();
   vctx.arc(cx, cy, ringR, 0, Math.PI * 2);
   vctx.stroke();
 
   // Label under the orb
-  vctx.fillStyle = getComputedStyle(document.body).color;
-  vctx.globalAlpha = 0.6;
-  vctx.font = `${12 * devicePixelRatio}px sans-serif`;
+  vctx.fillStyle = "#8b91a5";
+  vctx.globalAlpha = 0.9;
+  vctx.font = `${11 * devicePixelRatio}px "IBM Plex Mono", monospace`;
   vctx.textAlign = "center";
   const label = muted
     ? "muted"
     : modelLevelSm > 0.06 ? "speaking"
     : micLevelSm > 0.06 ? "hearing you"
     : "listening";
-  vctx.fillText(label, cx, h - 12 * devicePixelRatio);
+  vctx.fillText(label, cx, h - 14 * devicePixelRatio);
   vctx.globalAlpha = 1;
   vctx.textAlign = "start";
 
   requestAnimationFrame(drawViz);
+}
+
+// Faint idle orb so the stage is never an empty box
+function drawIdleOrb() {
+  const w = viz.width = viz.clientWidth * devicePixelRatio;
+  const h = viz.height = viz.clientHeight * devicePixelRatio;
+  vctx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  const baseR = Math.min(w, h) * 0.22;
+  const glow = vctx.createRadialGradient(cx, cy, baseR * 0.1, cx, cy, baseR * 1.6);
+  glow.addColorStop(0, "rgba(255,180,84,0.28)");
+  glow.addColorStop(0.55, "rgba(255,180,84,0.10)");
+  glow.addColorStop(1, "rgba(255,180,84,0)");
+  vctx.fillStyle = glow;
+  vctx.beginPath();
+  vctx.arc(cx, cy, baseR * 1.6, 0, Math.PI * 2);
+  vctx.fill();
+  vctx.lineWidth = 1.5 * devicePixelRatio;
+  vctx.strokeStyle = "rgba(106,165,255,0.18)";
+  vctx.beginPath();
+  vctx.arc(cx, cy, baseR * 1.15, 0, Math.PI * 2);
+  vctx.stroke();
+  vctx.fillStyle = "#8b91a5";
+  vctx.font = `${11 * devicePixelRatio}px "IBM Plex Mono", monospace`;
+  vctx.textAlign = "center";
+  vctx.fillText("standby", cx, h - 14 * devicePixelRatio);
+  vctx.textAlign = "start";
 }
 
 function setMuted(next) {
@@ -401,6 +577,7 @@ async function start() {
     muteBtn.disabled = false;
     vizRunning = true;
     drawViz();
+    setLamp(true);
     setStatus("🟢 Connected — start talking");
   } catch (err) {
     setStatus("❌ " + err.message);
@@ -424,13 +601,16 @@ function stop() {
   startBtn.disabled = false;
   stopBtn.disabled = true;
   settingsBox.disabled = false;
-  vctx.clearRect(0, 0, viz.width, viz.height);
+  setLamp(false);
+  drawIdleOrb();
   if (!statusEl.textContent.startsWith("❌")) setStatus("Stopped");
 }
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
 muteBtn.addEventListener("click", () => setMuted(!muted));
+drawIdleOrb();
+window.addEventListener("resize", () => { if (!vizRunning) drawIdleOrb(); });
 </script>
 </body>
 </html>
