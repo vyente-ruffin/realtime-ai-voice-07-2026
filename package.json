@@ -21,5 +21,8 @@
     "@azure/identity": "^4.13.1",
     "openai": "^6.49.0",
     "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.0"
   }
 }
