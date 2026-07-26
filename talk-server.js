@@ -138,7 +138,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    if (req.method === "POST" && req.url === "/token") {
+    if (req.method === "POST" && pathname === "/token") {
       const settings = parseSettings(await readBody(req));
 
       const input = {
@@ -216,7 +216,7 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && req.url === "/speak") {
+    if (req.method === "POST" && pathname === "/speak") {
       let text;
       try {
         text = JSON.parse((await readBody(req)) || "{}").text;
@@ -234,7 +234,7 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "GET" && req.url === "/events") {
+    if (req.method === "GET" && pathname === "/events") {
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -246,7 +246,7 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && req.url === "/turn") {
+    if (req.method === "POST" && pathname === "/turn") {
       let turn;
       try {
         turn = JSON.parse((await readBody(req)) || "{}");
