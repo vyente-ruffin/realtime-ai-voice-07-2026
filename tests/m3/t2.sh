@@ -21,21 +21,23 @@ else
   bad 1 "no output_audio_buffer.cleared (count=$CLEARED)"
 fi
 
-# 2. Pending hermes turn is cancelled: mid-think barge-in → session/cancel sent,
-#    late reply dropped (never spoken) [A8]
-# mocking is enabled server-side by gate.sh (VOICE_ALLOW_MOCK); the marker
-# MOCK_DELAY_<ms> in the transcript selects the delay.
+# 2. Pending hermes turn is cancelled: mid-think barge-in → session/cancel is
+#    actually sent on the wire AND the late reply is dropped [A8].
+#    Deliberately uses the REAL brain: with the mock there is no ACP turn in
+#    flight, so the protocol cancel is (correctly) suppressed and the test
+#    could only ever prove half its claim. A real turn takes 5-30s (M0
+#    baseline), leaving ample room to interrupt at 3s.
 : > "$HERE/logs/cancel.log"
-( sleep 2; curl -s -X POST http://localhost:8787/barge-in -H "X-Voice-Auth: $AUTH" >/dev/null ) &
+( sleep 3; curl -s -X POST http://localhost:8787/barge-in -H "X-Voice-Auth: $AUTH" >/dev/null ) &
 R=$(curl -s -X POST http://localhost:8787/turn -H "X-Voice-Auth: $AUTH" \
-  -H 'Content-Type: application/json' --max-time 60 \
-  -d '{"item_id":"c1","transcript":"MOCK_DELAY_8000 long answer","route":true}')
+  -H 'Content-Type: application/json' --max-time 180 \
+  -d '{"item_id":"c1","transcript":"Count slowly from one to twenty, one number per line.","route":true}')
 CANCELLED=$(grep -c '"event":"session/cancel"' "$HERE/logs/cancel.log" 2>/dev/null | head -1)
 DROPPED=$(grep -c '"event":"reply-dropped"' "$HERE/logs/cancel.log" 2>/dev/null | head -1)
-if [ "$CANCELLED" -ge 1 ] && [ "$DROPPED" -ge 1 ]; then
-  ok 2 "session/cancel sent and late reply dropped [A8]"
+if [ "$(num "$CANCELLED")" -ge 1 ] && [ "$(num "$DROPPED")" -ge 1 ]; then
+  ok 2 "session/cancel sent on the wire and late reply dropped [A8]"
 else
-  bad 2 "cancel=$CANCELLED dropped=$DROPPED resp=$(echo "$R" | head -c 100)"
+  bad 2 "cancel=$CANCELLED dropped=$DROPPED resp=$(echo "$R" | head -c 120)"
 fi
 
 # 3. The interrupting utterance becomes the next prompt to hermes
