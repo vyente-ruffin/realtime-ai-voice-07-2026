@@ -149,7 +149,7 @@ flowchart LR
 
 ### Step 6 — Tune it
 
-All knobs live in the session config inside `talk-server.js` ([events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)):
+The page has a **Session settings** panel — persona presets (assistant, interviewer, Spanish tutor, storyteller) with an editable system prompt, voice, speed, patience, and noise reduction — plus a mute button and a live level-bar visualization so you can *see* it hearing you. The browser only *requests* these; `talk-server.js` validates and clamps every value before baking them into the ephemeral session ([events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)):
 
 | Knob | Values | What it does |
 |---|---|---|

@@ -31,11 +31,40 @@ const VOICES = [
   "coral", "echo", "sage", "shimmer", "verse",
 ];
 const DEFAULT_VOICE = "cedar";
+const DEFAULT_INSTRUCTIONS =
+  "You are a friendly voice assistant helping test a GPT Realtime deployment on Azure AI Foundry. Keep replies conversational and brief.";
 
 async function readBody(req) {
   let data = "";
   for await (const chunk of req) data += chunk;
   return data;
+}
+
+function clamp(value, min, max, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+// Everything the browser sends is untrusted; validate/clamp each field.
+function parseSettings(raw) {
+  let cfg;
+  try {
+    cfg = JSON.parse(raw || "{}");
+  } catch {
+    cfg = {};
+  }
+  return {
+    voice: VOICES.includes(cfg.voice) ? cfg.voice : DEFAULT_VOICE,
+    speed: clamp(cfg.speed, 0.25, 1.5, 1.0),
+    silenceMs: Math.round(clamp(cfg.silence_duration_ms, 100, 3000, 500)),
+    noiseReduction: ["near_field", "far_field"].includes(cfg.noise_reduction)
+      ? cfg.noise_reduction
+      : null,
+    instructions:
+      typeof cfg.instructions === "string" && cfg.instructions.trim()
+        ? cfg.instructions.trim().slice(0, 4000)
+        : DEFAULT_INSTRUCTIONS,
+  };
 }
 
 async function getEntraToken() {
@@ -64,15 +93,22 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/token") {
-      let requestedVoice;
-      try {
-        requestedVoice = JSON.parse((await readBody(req)) || "{}").voice;
-      } catch {
-        requestedVoice = undefined;
+      const settings = parseSettings(await readBody(req));
+
+      const input = {
+        transcription: { model: "whisper-1" },
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: settings.silenceMs,
+          create_response: true,
+          interrupt_response: true,
+        },
+      };
+      if (settings.noiseReduction) {
+        input.noise_reduction = { type: settings.noiseReduction };
       }
-      const voice = VOICES.includes(requestedVoice)
-        ? requestedVoice
-        : DEFAULT_VOICE;
 
       const token = await getEntraToken();
       const upstream = await fetch(`${endpoint}/openai/v1/realtime/client_secrets`, {
@@ -85,20 +121,10 @@ const server = createServer(async (req, res) => {
           session: {
             type: "realtime",
             model: deploymentName,
-            instructions:
-              "You are a friendly voice assistant helping test a GPT Realtime deployment on Azure AI Foundry. Keep replies conversational and brief.",
+            instructions: settings.instructions,
             audio: {
-              input: {
-                turn_detection: {
-                  type: "server_vad",
-                  threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 500,
-                  create_response: true,
-                  interrupt_response: true,
-                },
-              },
-              output: { voice },
+              input,
+              output: { voice: settings.voice, speed: settings.speed },
             },
           },
         }),
@@ -122,12 +148,12 @@ const server = createServer(async (req, res) => {
 
       const data = JSON.parse(body);
       const ephemeralKey = data.value ?? data.client_secret?.value;
-      logger.info("Ephemeral key minted", { voice, expiresAt: data.expires_at });
+      logger.info("Ephemeral key minted", { settings, expiresAt: data.expires_at });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           ephemeralKey,
-          voice,
+          settings,
           callsUrl: `${endpoint}/openai/v1/realtime/calls`,
           expiresAt: data.expires_at,
         })

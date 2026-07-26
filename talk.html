@@ -8,58 +8,145 @@
   :root { color-scheme: light dark; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;
+    max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;
   }
   h1 { font-size: 1.3rem; }
+  fieldset {
+    border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem;
+    display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 0.8rem;
+    align-items: center; padding: 1rem;
+  }
+  fieldset:disabled { opacity: 0.55; }
+  legend { font-weight: 600; padding: 0 0.4rem; }
+  textarea { width: 100%; min-height: 3.2rem; font: inherit; border-radius: 6px; }
+  select, input[type=range] { font-size: 1rem; max-width: 100%; }
   button {
     font-size: 1.1rem; padding: 0.6rem 1.4rem; border-radius: 8px;
     border: 1px solid #888; cursor: pointer; margin-right: 0.5rem;
   }
   button:disabled { opacity: 0.4; cursor: default; }
-  #status { margin: 1rem 0; font-weight: 600; }
+  #muteBtn.muted { background: #d33; color: #fff; border-color: #d33; }
+  #status { margin: 0.8rem 0; font-weight: 600; }
+  #viz { width: 100%; height: 72px; display: block; border: 1px solid #8884;
+    border-radius: 8px; margin-bottom: 0.8rem; }
   .chat { border: 1px solid #8884; border-radius: 8px; padding: 1rem;
-    min-height: 200px; }
+    min-height: 160px; }
   .you { color: #2f6fdd; margin: 0.4rem 0; }
   .model { margin: 0.4rem 0; }
   .meta { opacity: 0.6; font-size: 0.85rem; margin-top: 1rem;
     white-space: pre-wrap; }
+  .val { font-variant-numeric: tabular-nums; opacity: 0.75; font-size: 0.9rem; }
 </style>
 </head>
 <body>
 <h1>🎙️ Talk to gpt-realtime-2.1</h1>
-<p>Click <b>Start</b>, allow microphone access, and just speak. The model listens, detects when you stop talking, and answers out loud.</p>
-<label for="voiceSel">Voice:</label>
-<select id="voiceSel" style="font-size:1.05rem; padding:0.5rem; border-radius:8px; margin-right:0.8rem;">
-  <option value="cedar" selected>cedar — natural male (newest)</option>
-  <option value="marin">marin — natural female (newest)</option>
-  <option value="alloy">alloy — neutral</option>
-  <option value="ash">ash — warm male</option>
-  <option value="ballad">ballad — expressive British male</option>
-  <option value="coral">coral — warm female</option>
-  <option value="echo">echo — clear male</option>
-  <option value="sage">sage — soft female</option>
-  <option value="shimmer">shimmer — bright female</option>
-  <option value="verse">verse — versatile male</option>
-</select>
+<p>Tune the session, click <b>Start</b>, allow the mic, and just speak. Settings lock while a session is live.</p>
+
+<fieldset id="settings">
+  <legend>Session settings</legend>
+
+  <label for="personaSel">Persona</label>
+  <select id="personaSel">
+    <option value="assistant" selected>Helpful assistant</option>
+    <option value="interviewer">Job interviewer</option>
+    <option value="tutor">Spanish tutor</option>
+    <option value="storyteller">Storyteller</option>
+    <option value="custom">Custom (edit below)</option>
+  </select>
+
+  <label for="instructions">Instructions</label>
+  <textarea id="instructions"></textarea>
+
+  <label for="voiceSel">Voice</label>
+  <select id="voiceSel">
+    <option value="cedar" selected>cedar — natural male (newest)</option>
+    <option value="marin">marin — natural female (newest)</option>
+    <option value="alloy">alloy — neutral</option>
+    <option value="ash">ash — warm male</option>
+    <option value="ballad">ballad — expressive British male</option>
+    <option value="coral">coral — warm female</option>
+    <option value="echo">echo — clear male</option>
+    <option value="sage">sage — soft female</option>
+    <option value="shimmer">shimmer — bright female</option>
+    <option value="verse">verse — versatile male</option>
+  </select>
+
+  <label for="speed">Speed <span class="val" id="speedVal">1.0×</span></label>
+  <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1.0">
+
+  <label for="patience">Patience <span class="val" id="patienceVal">500 ms</span></label>
+  <input type="range" id="patience" min="200" max="2000" step="100" value="500">
+
+  <label for="noiseSel">Noise reduction</label>
+  <select id="noiseSel">
+    <option value="">Off</option>
+    <option value="near_field" selected>Near field (headset / close mic)</option>
+    <option value="far_field">Far field (room / laptop mic)</option>
+  </select>
+</fieldset>
+
 <button id="startBtn">Start</button>
 <button id="stopBtn" disabled>Stop</button>
+<button id="muteBtn" disabled>🎤 Mute</button>
+
 <div id="status">Idle</div>
+<canvas id="viz"></canvas>
 <div class="chat" id="chat"></div>
 <div class="meta" id="meta"></div>
 
 <script>
+const PERSONAS = {
+  assistant:
+    "You are a friendly voice assistant helping test a GPT Realtime deployment on Azure AI Foundry. Keep replies conversational and brief.",
+  interviewer:
+    "You are a professional job interviewer conducting a mock interview for a cloud engineering role. Ask one question at a time, listen to the answer, give one sentence of feedback, then ask the next question.",
+  tutor:
+    "You are a patient Spanish tutor for a beginner. Speak mostly simple Spanish with brief English help when the learner struggles. Gently correct mistakes and keep the conversation going with easy questions.",
+  storyteller:
+    "You are a dramatic storyteller. Tell vivid, short stories with distinct character voices and build suspense. Ask the listener to choose what happens next at key moments.",
+};
+
 let pc = null;
 let mic = null;
 let dataChannel = null;
+let audioCtx = null;
+let micAnalyser = null;
+let remoteAnalyser = null;
+let vizRunning = false;
+let muted = false;
+
 const audioEl = new Audio();
 audioEl.autoplay = true;
 
-const startBtn = document.getElementById("startBtn");
-const stopBtn = document.getElementById("stopBtn");
-const voiceSel = document.getElementById("voiceSel");
-const statusEl = document.getElementById("status");
-const chatEl = document.getElementById("chat");
-const metaEl = document.getElementById("meta");
+const $ = (id) => document.getElementById(id);
+const startBtn = $("startBtn"), stopBtn = $("stopBtn"), muteBtn = $("muteBtn");
+const settingsBox = $("settings"), personaSel = $("personaSel");
+const instructionsEl = $("instructions"), voiceSel = $("voiceSel");
+const speedEl = $("speed"), speedVal = $("speedVal");
+const patienceEl = $("patience"), patienceVal = $("patienceVal");
+const noiseSel = $("noiseSel");
+const statusEl = $("status"), chatEl = $("chat"), metaEl = $("meta");
+const viz = $("viz"), vctx = viz.getContext("2d");
+
+instructionsEl.value = PERSONAS.assistant;
+personaSel.addEventListener("change", () => {
+  if (personaSel.value !== "custom") {
+    instructionsEl.value = PERSONAS[personaSel.value];
+  }
+  instructionsEl.focus();
+});
+instructionsEl.addEventListener("input", () => {
+  const matchesPreset = Object.entries(PERSONAS).some(
+    ([, text]) => text === instructionsEl.value
+  );
+  if (!matchesPreset) personaSel.value = "custom";
+});
+speedEl.addEventListener("input", () => {
+  speedVal.textContent = Number(speedEl.value).toFixed(2).replace(/0$/, "") + "×";
+});
+patienceEl.addEventListener("input", () => {
+  patienceVal.textContent = patienceEl.value + " ms";
+});
 
 function setStatus(text) { statusEl.textContent = text; }
 function logMeta(text) { metaEl.textContent += text + "\n"; }
@@ -114,7 +201,7 @@ function handleEvent(event) {
       currentModelLine = null;
       break;
     case "response.done":
-      setStatus("🟢 Your turn — keep talking or press Stop");
+      setStatus(muted ? "🔇 Muted" : "🟢 Your turn — keep talking or press Stop");
       break;
     case "error":
       logMeta("Error event: " + JSON.stringify(event));
@@ -122,22 +209,79 @@ function handleEvent(event) {
   }
 }
 
+// --- Visualization: two live level bars (you vs model) ---
+function levelFrom(analyser, buf) {
+  analyser.getByteTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = (buf[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.min(1, Math.sqrt(sum / buf.length) * 3);
+}
+
+function drawViz() {
+  if (!vizRunning) return;
+  const w = viz.width = viz.clientWidth * devicePixelRatio;
+  const h = viz.height = viz.clientHeight * devicePixelRatio;
+  vctx.clearRect(0, 0, w, h);
+
+  const rows = [
+    { label: "You", analyser: micAnalyser, color: "#2f6fdd", dim: muted },
+    { label: "Model", analyser: remoteAnalyser, color: "#2fa463", dim: false },
+  ];
+  const buf = new Uint8Array(1024);
+  const rowH = h / rows.length;
+
+  rows.forEach((row, i) => {
+    const level = row.analyser ? levelFrom(row.analyser, buf) : 0;
+    const y = i * rowH;
+    vctx.globalAlpha = row.dim ? 0.25 : 1;
+    vctx.fillStyle = row.color;
+    vctx.fillRect(90 * devicePixelRatio, y + rowH * 0.25,
+      (w - 110 * devicePixelRatio) * level, rowH * 0.5);
+    vctx.globalAlpha = 1;
+    vctx.fillStyle = getComputedStyle(document.body).color;
+    vctx.font = `${13 * devicePixelRatio}px sans-serif`;
+    vctx.textBaseline = "middle";
+    vctx.fillText(row.label + (row.dim ? " (muted)" : ""), 10 * devicePixelRatio, y + rowH / 2);
+  });
+
+  requestAnimationFrame(drawViz);
+}
+
+function setMuted(next) {
+  muted = next;
+  const track = mic && mic.getAudioTracks()[0];
+  if (track) track.enabled = !muted;
+  muteBtn.textContent = muted ? "🔇 Unmute" : "🎤 Mute";
+  muteBtn.classList.toggle("muted", muted);
+  if (muted) setStatus("🔇 Muted — it can't hear you");
+  else setStatus("🟢 Mic live — start talking");
+}
+
 async function start() {
   startBtn.disabled = true;
-  voiceSel.disabled = true;
+  settingsBox.disabled = true;
   try {
     setStatus("Minting ephemeral key…");
     const tokenResp = await fetch("/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voice: voiceSel.value }),
+      body: JSON.stringify({
+        voice: voiceSel.value,
+        speed: Number(speedEl.value),
+        silence_duration_ms: Number(patienceEl.value),
+        noise_reduction: noiseSel.value || undefined,
+        instructions: instructionsEl.value,
+      }),
     });
     if (!tokenResp.ok) {
       throw new Error("Token service error: " + (await tokenResp.text()));
     }
-    const { ephemeralKey, callsUrl, voice } = await tokenResp.json();
+    const { ephemeralKey, callsUrl, settings } = await tokenResp.json();
     if (!ephemeralKey) throw new Error("No ephemeral key in response.");
-    logMeta("Ephemeral key received. Voice: " + voice);
+    logMeta("Session settings: " + JSON.stringify(settings));
 
     setStatus("Requesting microphone…");
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -164,8 +308,16 @@ async function start() {
       throw err;
     }
 
+    audioCtx = new AudioContext();
+    micAnalyser = audioCtx.createAnalyser();
+    audioCtx.createMediaStreamSource(mic).connect(micAnalyser);
+
     pc = new RTCPeerConnection();
-    pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+    pc.ontrack = (e) => {
+      audioEl.srcObject = e.streams[0];
+      remoteAnalyser = audioCtx.createAnalyser();
+      audioCtx.createMediaStreamSource(e.streams[0]).connect(remoteAnalyser);
+    };
     pc.addTrack(mic.getTracks()[0], mic);
 
     dataChannel = pc.createDataChannel("oai-events");
@@ -192,6 +344,9 @@ async function start() {
     await pc.setRemoteDescription({ type: "answer", sdp: await sdpResp.text() });
 
     stopBtn.disabled = false;
+    muteBtn.disabled = false;
+    vizRunning = true;
+    drawViz();
     setStatus("🟢 Connected — start talking");
   } catch (err) {
     setStatus("❌ " + err.message);
@@ -201,17 +356,27 @@ async function start() {
 }
 
 function stop() {
+  vizRunning = false;
   if (dataChannel) { dataChannel.close(); dataChannel = null; }
   if (pc) { pc.close(); pc = null; }
   if (mic) { mic.getTracks().forEach((t) => t.stop()); mic = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  micAnalyser = null;
+  remoteAnalyser = null;
+  muted = false;
+  muteBtn.textContent = "🎤 Mute";
+  muteBtn.classList.remove("muted");
+  muteBtn.disabled = true;
   startBtn.disabled = false;
   stopBtn.disabled = true;
-  voiceSel.disabled = false;
+  settingsBox.disabled = false;
+  vctx.clearRect(0, 0, viz.width, viz.height);
   if (!statusEl.textContent.startsWith("❌")) setStatus("Stopped");
 }
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
+muteBtn.addEventListener("click", () => setMuted(!muted));
 </script>
 </body>
 </html>

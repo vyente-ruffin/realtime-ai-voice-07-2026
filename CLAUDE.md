@@ -10,7 +10,8 @@ speech-to-speech over WebRTC in the browser, plus a WebSocket smoke test. Keyles
 ## Verified state (as of 2026-07-25)
 
 - `voice-test.js` — WORKS. Text prompt → spoken WAV reply (~13s audio, transcript + usage logged as JSON lines).
-- `talk-server.js` + `talk.html` — WORKS, human-tested live: mic in, voice out, barge-in interruption (`interrupt_response: true`), voice picker (10 voices, `cedar` default), transcript freezes at the real cut point on interruption (keyed on `output_audio_buffer.cleared`).
+- `talk-server.js` + `talk.html` — WORKS, human-tested live: mic in, voice out, barge-in interruption (`interrupt_response: true`), transcript freezes at the real cut point on interruption (keyed on `output_audio_buffer.cleared`).
+- Session settings panel (server-validated, all clamped in `parseSettings()`): voice picker (10 voices, `cedar` default), persona presets + custom instructions, speed (0.25–1.5), patience (`silence_duration_ms` 200–2000), noise reduction (near/far field), input transcription via whisper-1 ("You:" lines in transcript). UI extras: mute toggle (disables the mic track), live level-bar visualization (Web Audio AnalyserNode on both mic and remote streams). Settings verified server-side; full-loop human voice test of the new panel pending.
 - `index.js` — Microsoft's WS quickstart sample, unmodified, also verified working.
 
 ## How to rediscover the environment (nothing sensitive is hardcoded here)
