@@ -29,7 +29,12 @@ fi
 : > "$TURNS"
 bash "$RIG/make-wav.sh" /tmp/m1t3b.wav "Turn one." "Turn two." "Turn three." >/dev/null
 if node "$RIG/driver.mjs" --wav /tmp/m1t3b.wav --puppet 1 --watch 18 --out /tmp/m1t3b.json; then
-  ORDER=$(grep -oiE "turn (one|two|three)" "$TURNS" | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')
+  # whisper renders spoken numbers either as words or digits ("Turn 2"),
+  # so accept both forms; the assertion is ORDER, not spelling.
+  ORDER=$(grep -oiE "turn (one|two|three|1|2|3)" "$TURNS" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/turn 1/turn one/' -e 's/turn 2/turn two/' -e 's/turn 3/turn three/' \
+    | tr '\n' ' ')
   if echo "$ORDER" | grep -q "turn one .*turn two .*turn three"; then
     ok 2 "three turns in spoken order: $ORDER"
   else
