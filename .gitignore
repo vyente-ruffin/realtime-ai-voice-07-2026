@@ -5,3 +5,5 @@ output.pcm
 *.log
 nohup.out
 .env
+tests/baseline/*
+!tests/baseline/.gitkeep
