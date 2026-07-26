@@ -130,10 +130,15 @@ async function getBrain() {
     });
     await client.start();
     const sessionId = await client.newSession();
-    // Delegation contract, sent once per ACP session.
-    client.prompt(DELEGATION_PREAMBLE).catch((err) =>
-      logger.warn("Delegation preamble failed", { error: err.message })
-    );
+    // Delegation contract, sent once per ACP session — AWAITED. Fire-and-forget
+    // collides with the first real turn (hermes answers "Queued for the next
+    // turn") and its reply lands out-of-turn, where the announcement path would
+    // speak the preamble acknowledgement aloud.
+    try {
+      await client.prompt(DELEGATION_PREAMBLE);
+    } catch (err) {
+      logger.warn("Delegation preamble failed", { error: err.message });
+    }
     appendFileSync(
       join(logsDir, "acp-session.json"),
       JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() }) + "\n"
