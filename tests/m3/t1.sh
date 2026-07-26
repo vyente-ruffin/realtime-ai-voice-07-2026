@@ -3,13 +3,15 @@
 set -u
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 FAIL=0
+num() { local v="${1:-}"; [ -n "$v" ] && echo "$v" || echo 0; }
 ok()  { echo "  PASS m3.t1.$1: $2"; }
 bad() { echo "  FAIL m3.t1.$1: $2"; FAIL=1; }
 AUTH="$(curl -s http://localhost:8787/ | sed -n 's/.*voice-auth" content="\([^"]*\)".*/\1/p')"
 
 # The mock brain lets us control think-time exactly; real hermes latency
 # varies 4-30s (M0 baseline) which cannot prove a 1.5s threshold.
-export VOICE_MOCK_BRAIN=1
+# mocking is enabled server-side by gate.sh (VOICE_ALLOW_MOCK); the marker
+# MOCK_DELAY_<ms> in the transcript selects the delay.
 
 # 1. Slow reply (mock delay 4s) → filler fires between 1.5s and 3.0s
 R=$(curl -s -X POST http://localhost:8787/turn -H "X-Voice-Auth: $AUTH" \
@@ -34,9 +36,9 @@ fi
 
 # 3. Fillers are out-of-band: tagged conversation:"none" + metadata.purpose,
 #    and the text never reaches hermes' prompt context [C1][C7]
-OOB=$(grep -c '"conversation":"none"' "$HERE/logs/fillers.log" 2>/dev/null || echo 0)
-TAGGED=$(grep -c '"purpose":"filler"' "$HERE/logs/fillers.log" 2>/dev/null || echo 0)
-LEAKED=$(grep -ciE "one sec|checking|let me think|still with you" "$HERE/logs/turns-routed.log" 2>/dev/null || echo 0)
+OOB=$(grep -c '"conversation":"none"' "$HERE/logs/fillers.log" 2>/dev/null | head -1)
+TAGGED=$(grep -c '"purpose":"filler"' "$HERE/logs/fillers.log" 2>/dev/null | head -1)
+LEAKED=$(grep -ciE "one sec|checking|let me think|still with you" "$HERE/logs/turns-routed.log" 2>/dev/null | head -1)
 if [ "$OOB" -ge 1 ] && [ "$TAGGED" -ge 1 ] && [ "$LEAKED" -eq 0 ]; then
   ok 3 "fillers out-of-band ($OOB) and tagged ($TAGGED); zero leaked into prompts"
 else

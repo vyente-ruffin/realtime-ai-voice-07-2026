@@ -348,10 +348,19 @@ function setLamp(live) {
 function logMeta(text) { metaEl.textContent += text + "\n"; }
 
 let currentModelLine = null;
+let lastModelLine = null;   // transcript completes before audio does
 let dropTranscript = false;
 const pendingYouLines = {};
 
 function markInterrupted() {
+  // The transcript stream finishes ahead of the audio, so by interrupt time
+  // currentModelLine is often already null — fall back to the last line so
+  // the ⏹ marker still lands where the cut happened.
+  const line = currentModelLine ?? lastModelLine;
+  if (line && !line.dataset.interrupted) {
+    line.dataset.interrupted = "1";
+    currentModelLine = line;
+  }
   if (currentModelLine) {
     window.__voiceLabEvents.push({ ts: Date.now(), type: "ui.interrupted" });
     currentModelLine.textContent += " ⏹ (interrupted — the model's memory is cut here too)";
@@ -431,7 +440,7 @@ function handleEvent(event) {
     }
     case "response.output_audio_transcript.delta":
       if (dropTranscript) break;
-      if (!currentModelLine) currentModelLine = addLine("model", "Model: ");
+      if (!currentModelLine) { currentModelLine = addLine("model", "Model: "); lastModelLine = currentModelLine; }
       currentModelLine.textContent += event.delta;
       setStatus("🔊 Speaking…");
       break;

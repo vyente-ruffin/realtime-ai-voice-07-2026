@@ -202,7 +202,9 @@ async function routeTurn(transcript) {
 
   let reply;
   try {
-    if (process.env.VOICE_MOCK_BRAIN === "1") {
+    // Mock only when the harness allows it AND the transcript carries the
+    // explicit marker, so real-brain gates in m2 stay real.
+    if (process.env.VOICE_ALLOW_MOCK === "1" && /MOCK_DELAY_\d+/.test(transcript)) {
       const delay = mockDelayFor(transcript);
       await new Promise((r) => setTimeout(r, delay));
       reply = { text: `MOCK REPLY after ${delay}ms`, stopReason: "end_turn", ms: delay };

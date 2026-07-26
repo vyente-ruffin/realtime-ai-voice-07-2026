@@ -4,6 +4,7 @@ set -u
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 RIG="$HERE/tests/rig"
 FAIL=0
+num() { local v="${1:-}"; [ -n "$v" ] && echo "$v" || echo 0; }
 ok()  { echo "  PASS m3.t3.$1: $2"; }
 bad() { echo "  FAIL m3.t3.$1: $2"; FAIL=1; }
 

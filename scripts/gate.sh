@@ -19,11 +19,15 @@ trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 export AZURE_TOKEN="$(az account get-access-token --subscription e1e5b742-d76b-4ce5-97d3-8d820bb33904 --resource https://ai.azure.com --query accessToken -o tsv)"
 export AZURE_OPENAI_ENDPOINT="https://ai103-resource-ruffin.openai.azure.com"
 export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-realtime-2.1"
+# Harness-only: lets MOCK_DELAY_* transcripts short-circuit the brain so the
+# filler-timing gates are falsifiable. Real-brain gates (m2) never use the marker.
+export VOICE_ALLOW_MOCK=1
 
 # Always restart the talk server with a freshly minted token: a long-running
 # server holds an expired Entra token (~1h TTL, see LIVE-6) and answers 502.
 echo "[gate] restarting talk-server with fresh token…"
 lsof -ti:8787 | xargs kill 2>/dev/null
+pkill -f "hermes acp" 2>/dev/null   # reap orphans: they starve new initializes
 sleep 1
 nohup node "$HERE/talk-server.js" > /tmp/talk-server-gate.log 2>&1 &
 sleep 3
