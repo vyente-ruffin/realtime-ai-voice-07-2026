@@ -369,12 +369,21 @@ Per docs, integrating a new front-end via ACP **does not modify the existing her
 ### M5.T2 — Mouth hardening
 *What:* add `webrtcfilter=on` to the calls URL so the browser only receives the filtered event set and prompt instructions stay private [MS10]; evaluate the server-side WebSocket observer (proxy SDP, parse `Location`, connect `wss…?call_id=` [MS9]) to move ALL injection server-side.
 
-| # | Test (binary) | How |
-|---|---|---|
-| 1 | Filter active, named events | with filter on: `session.created` and `session.updated` are ABSENT from the browser data channel, while `response.output_audio_transcript.delta` still arrives (allowed set per [MS10]); the observed allowed set is recorded in the gate log |
-| 2 | Puppet still works filtered | M1.T2 tests #1–#3 pass with filter on |
-| 3 | Ears still work filtered | M1.T3#1 passes with filter on (`input_audio_transcription.completed` is in [MS10]'s allowed list) |
-| 4 | Observer decision recorded | `docs/ADR-001-observer.md` exists with a go/no-go and cites [MS9] |
+**OUTCOME (2026-07-26): NO-GO on the filter — see [ADR-001](ADR-001-observer.md).** The
+documented allowed-event list [MS10] omits `session.created`, `output_audio_buffer.cleared`,
+`response.created` and `response.done`, which M3's rotation [MS17], interruption marker
+[MS8] and mid-speech deferral all depend on. Enabling the filter alone would break shipped,
+gated behaviour in exchange for a modest confidentiality gain. Tests #2 and #3 below would
+still have passed — a partial suite blessing a breaking change — which is why the decision
+is recorded with evidence rather than inferred from green checks. Full hardening requires
+the server-side observer refactor [MS9], scoped in the ADR and deferred pending owner approval.
+
+| # | Test (binary) | How | Outcome |
+|---|---|---|---|
+| 1 | Filter active, named events | with filter on: `session.created`/`session.updated` absent, `response.output_audio_transcript.delta` still arriving (allowed set per [MS10]) | **not run — filter not enabled (ADR-001)** |
+| 2 | Puppet still works filtered | M1.T2 #1–#3 pass with filter on | **not run** |
+| 3 | Ears still work filtered | M1.T3#1 passes with filter on | **not run** |
+| 4 | Observer decision recorded | `docs/ADR-001-observer.md` exists with a go/no-go and cites [MS9] | ✅ **PASS** |
 
 **🚧 GATE M5 = T1(4) + T2(4) + cumulative m0..m4 (against the explicitly updated baselines) → tag `v0.5.0`.**
 
