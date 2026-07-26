@@ -32,6 +32,14 @@ export class AcpClient {
     this.buffer = "";
     this.chunks = [];
     this.pendingPermissions = new Map();
+    this.dead = false;
+    this.inFlight = false;
+  }
+
+  // A client whose child has exited must never be handed to a caller: the
+  // failure would surface as a broken turn instead of a transparent respawn.
+  isAlive() {
+    return Boolean(this.child) && !this.dead && this.child.exitCode === null;
   }
 
   async start() {
@@ -41,13 +49,14 @@ export class AcpClient {
       if (line) logger.debug("hermes stderr", { line: line.slice(0, 200) });
     });
     this.child.stdout.on("data", (data) => this.#onData(data));
-    this.child.on("exit", (code) => {
-      logger.info("ACP child exited", { code, sessionId: this.sessionId });
+    this.child.on("exit", (code, signal) => {
+      this.dead = true;
+      logger.info("ACP child exited", { code, signal, sessionId: this.sessionId });
       // Fail every in-flight request so callers surface an error instead of
       // hanging until timeout (M2.T2 graceful-failure gate).
       for (const [id, p] of this.pending) {
         this.pending.delete(id);
-        p.reject(new Error(`hermes acp exited (code ${code})`));
+        p.reject(new Error(`hermes acp exited (code ${code}, signal ${signal})`));
       }
     });
 
@@ -77,11 +86,17 @@ export class AcpClient {
     if (!this.sessionId) throw new Error("no ACP session");
     this.chunks = [];
     const started = Date.now();
-    const res = await this.#request(
-      "session/prompt",
-      { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
-      PROMPT_TIMEOUT_MS
-    );
+    this.inFlight = true;
+    let res;
+    try {
+      res = await this.#request(
+        "session/prompt",
+        { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
+        PROMPT_TIMEOUT_MS
+      );
+    } finally {
+      this.inFlight = false;
+    }
     return {
       text: this.chunks.join("").trim(),
       stopReason: res?.stopReason ?? "unknown",
@@ -92,13 +107,19 @@ export class AcpClient {
   // Barge-in: notification, not a request [A8]. Pending permission requests
   // must then be answered "cancelled" [A9].
   cancel() {
-    if (!this.sessionId || !this.child) return;
+    if (!this.sessionId || !this.child) return false;
+    // [A8] cancels ONGOING operations. Sending it with no turn in flight is
+    // meaningless — and empirically corrupts hermes' ACP adapter, which then
+    // fails the NEXT prompt with "'NoneType' object has no attribute
+    // 'startswith'". Barge-in on a first utterance hits exactly this.
+    if (!this.inFlight) return false;
     this.#send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.sessionId } });
     for (const [id] of this.pendingPermissions) {
       this.#send({ jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } });
     }
     this.pendingPermissions.clear();
     logger.info("session/cancel sent", { sessionId: this.sessionId });
+    return true;
   }
 
   // Permission policy [A9]: auto-allow read-class work only. Anything that can

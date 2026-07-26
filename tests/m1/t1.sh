@@ -19,8 +19,12 @@ fi
 
 # 2+3. 🗣️(synthetic) puppet session: speech in → NO response.created, but
 #      transcription arrives [MS3][MS4][MS15]. LIVE-12 proof ride-along.
+# --noroute since M2: the turn router legitimately produces responses now, so
+# routing must be off for response.created to mean "self-generated" (same
+# isolation m2.t4.3 uses). The assertion is unchanged: the model must never
+# speak unless the server asked it to.
 bash "$RIG/make-wav.sh" /tmp/m1t1.wav "Hello puppet, can you hear me?" >/dev/null
-if node "$RIG/driver.mjs" --wav /tmp/m1t1.wav --puppet 1 --watch 12 --out /tmp/m1t1.json; then
+if node "$RIG/driver.mjs" --wav /tmp/m1t1.wav --puppet 1 --noroute 1 --watch 14 --out /tmp/m1t1.json; then
   STOPPED=$(jq '[.events[]|select(.type=="input_audio_buffer.speech_stopped")]|length' /tmp/m1t1.json)
   CREATED=$(jq '[.events[]|select(.type=="response.created")]|length' /tmp/m1t1.json)
   TRANSCRIBED=$(jq -r '[.events[]|select(.type=="conversation.item.input_audio_transcription.completed" and (.transcript|length>0))]|length' /tmp/m1t1.json)

@@ -27,6 +27,7 @@ const puppet = arg("puppet", "1") === "1";
 const watchSecs = Number(arg("watch", "12"));
 const speakFile = arg("speak-file", null);
 const noRoute = arg("noroute", "0") === "1";
+const rotateSecs = arg("rotate-secs", "0");
 
 if (!wav) {
   logger.error("--wav is required");
@@ -48,7 +49,8 @@ try {
   const page = await context.newPage();
 
   await page.goto(
-    `http://localhost:8787/?test=1&puppet=${puppet ? 1 : 0}${noRoute ? "&noroute=1" : ""}`
+    `http://localhost:8787/?test=1&puppet=${puppet ? 1 : 0}${noRoute ? "&noroute=1" : ""}` +
+    (rotateSecs !== "0" ? `&rotate_secs=${rotateSecs}` : "")
   );
   await page.click("#startBtn");
 
