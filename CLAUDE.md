@@ -7,12 +7,28 @@ Read this first if you're an AI agent (or human) picking this project up. The RE
 A working, verified test harness for a `gpt-realtime-2.1` deployment on Azure AI Foundry:
 speech-to-speech over WebRTC in the browser, plus a WebSocket smoke test. Keyless Entra auth only — there are no API keys anywhere in this project, by design. Do not add any.
 
-## Verified state (as of 2026-07-25)
+## Verified state (as of 2026-07-26) — M0–M4 BUILT, 63/63 GATES GREEN
 
-- `voice-test.js` — WORKS. Text prompt → spoken WAV reply (~13s audio, transcript + usage logged as JSON lines).
-- `talk-server.js` + `talk.html` — WORKS, human-tested live: mic in, voice out, barge-in interruption (`interrupt_response: true`), transcript freezes at the real cut point on interruption (keyed on `output_audio_buffer.cleared`).
-- Session settings panel (server-validated, all clamped in `parseSettings()`): voice picker (10 voices, `cedar` default), persona presets + custom instructions, speed (0.25–1.5), patience (`silence_duration_ms` 200–2000), noise reduction (near/far field), input transcription via whisper-1 ("You:" lines in transcript). UI extras: mute toggle (disables the mic track), live level-bar visualization (Web Audio AnalyserNode on both mic and remote streams). Settings verified server-side; full-loop human voice test of the new panel pending.
-- `index.js` — Microsoft's WS quickstart sample, unmodified, also verified working.
+The voice platform described in `docs/VOICE-PLATFORM-PLAN.md` is **built and
+gated through Milestone 4** (tags `v0.0.1`–`v0.4.0`, PRs #1–#5 merged).
+
+- `talk-server.js` + `talk.html` + `src/acp-client.js` — hermes IS the voice:
+  puppet mode [MS3], say-exactly injection [MS6], ACP bus [A3][A6], fillers
+  out-of-band [C1][C7], barge-in with `session/cancel` [A8], `expires_at`
+  rotation [MS17], async delegation with TASK-* sentinels [H9][H10].
+- `npm run gate:m4` re-certifies everything (m0..m4 + INV, ~50 min, needs the
+  Azure tenant, a mic-free synthetic rig, and the hermes install).
+- Gate logs (including honest failures) live in `tests/gate-logs/`.
+
+**Remaining work is blocked on the owner, by design:**
+1. FINAL acceptance — the owner talks to it and judges quality.
+2. M5 (optional) — gateway platform plugin so voice appears in
+   `hermes gateway list`. This is the ONLY sanctioned change to the hermes
+   install and requires explicit approval before any file is touched.
+
+**Run it:** start `talk-server.js` with the env from `.env.example`, wait for
+`"Brain warm"` in the log (~30s, ACP loads 175 MCP tools), then open
+http://localhost:8787.
 
 ## How to rediscover the environment (nothing sensitive is hardcoded here)
 
