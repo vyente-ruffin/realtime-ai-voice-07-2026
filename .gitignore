@@ -7,3 +7,4 @@ nohup.out
 .env
 tests/baseline/*
 !tests/baseline/.gitkeep
+logs/

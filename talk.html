@@ -255,6 +255,7 @@ const PERSONAS = {
 window.__voiceLabEvents = [];
 const urlParams = new URLSearchParams(location.search);
 const puppetMode = urlParams.get("puppet") === "1";
+const noRoute = urlParams.get("noroute") === "1";
 const VOICE_AUTH = document.querySelector('meta[name="voice-auth"]').content;
 const authHeaders = { "Content-Type": "application/json", "X-Voice-Auth": VOICE_AUTH };
 
@@ -402,10 +403,16 @@ function handleEvent(event) {
         addLine("you", "You: " + text);
       }
       // Ears → server: the transcript is all the brain needs [MS4].
+      // Ears -> brain: the server routes this to hermes and pushes the reply
+      // back over SSE as a say-exactly injection [A3][MS6].
       fetch("/turn", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ item_id: event.item_id, transcript: event.transcript || "" }),
+        body: JSON.stringify({
+          item_id: event.item_id,
+          transcript: event.transcript || "",
+          route: !noRoute,
+        }),
       }).catch(() => { /* server down; page keeps working */ });
       break;
     }

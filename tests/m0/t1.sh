@@ -35,7 +35,7 @@ fi
 
 # 4. hermes CLI surfaces answer [LIVE-9][LIVE-10][LIVE-11]
 S_OK=1
-hermes sessions >/dev/null 2>&1 || { S_OK=0; echo "    (hermes sessions failed)"; }
+hermes sessions list >/dev/null 2>&1 || { S_OK=0; echo "    (hermes sessions list failed)"; }
 Z_OUT="$(hermes -z "Reply with exactly OK" 2>/dev/null)"
 echo "$Z_OUT" | grep -qi "OK" || { S_OK=0; echo "    (hermes -z did not contain OK)"; }
 hermes send --help >/dev/null 2>&1 || { S_OK=0; echo "    (hermes send --help failed)"; }

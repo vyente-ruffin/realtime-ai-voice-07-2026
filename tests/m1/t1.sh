@@ -38,17 +38,10 @@ else
   bad 2 "rig run failed"; bad 3 "rig run failed"
 fi
 
-# 4. 🗣️(synthetic) classic mode still answers by itself (dev-only until M2.T4)
-bash "$RIG/make-wav.sh" /tmp/m1t1c.wav "Please say one short word." >/dev/null
-if node "$RIG/driver.mjs" --wav /tmp/m1t1c.wav --puppet 0 --watch 12 --out /tmp/m1t1c.json; then
-  CREATED=$(jq '[.events[]|select(.type=="response.created")]|length' /tmp/m1t1c.json)
-  if [ "$CREATED" -ge 1 ]; then
-    ok 4 "classic mode self-responded ($CREATED responses) — A/B scaffold intact"
-  else
-    bad 4 "classic mode did not respond"
-  fi
-else
-  bad 4 "rig run failed"
-fi
+# 4. RETIRED at M2. This asserted that classic mode (the model answering with
+# its own brain) still worked — a dev-only A/B scaffold the plan scoped to M1
+# alone ("removed at M2 gate"). M2.T4 retires it for real: /token refuses
+# puppet:false, so the old assertion contradicts shipped behavior. Successor:
+# m2.t4.1 (classic mode REFUSED). m1.t1 retains 3 binary tests.
 
 exit $FAIL
