@@ -21,10 +21,11 @@ const READ_KINDS = new Set(["read", "search", "fetch", "think"]);
 const READ_TITLE = /^(read|list|search|show|view|get|find|grep|cat)\b/i;
 
 export class AcpClient {
-  constructor({ cwd = process.cwd(), onChunk = null, onPermission = null } = {}) {
+  constructor({ cwd = process.cwd(), onChunk = null, onPermission = null, onAnnouncement = null } = {}) {
     this.cwd = cwd;
     this.onChunk = onChunk;
     this.onPermission = onPermission;
+    this.onAnnouncement = onAnnouncement;
     this.child = null;
     this.sessionId = null;
     this.nextId = 1;
@@ -34,6 +35,17 @@ export class AcpClient {
     this.pendingPermissions = new Map();
     this.dead = false;
     this.inFlight = false;
+    this.announceBuffer = [];
+    this.announceTimer = null;
+  }
+
+  // Debounced: a pushed result arrives as several chunks; announce once.
+  #flushAnnouncement() {
+    const text = this.announceBuffer.join("").trim();
+    this.announceBuffer = [];
+    if (!text) return;
+    logger.info("Out-of-turn message from hermes", { chars: text.length });
+    this.onAnnouncement?.(text);
   }
 
   // A client whose child has exited must never be handed to a caller: the
@@ -191,8 +203,17 @@ export class AcpClient {
     if (msg.method === "session/update") {
       const u = msg.params?.update;
       if (u?.sessionUpdate === "agent_message_chunk" && u.content?.type === "text") {
-        this.chunks.push(u.content.text);
-        this.onChunk?.(u.content.text);
+        if (this.inFlight) {
+          this.chunks.push(u.content.text);
+          this.onChunk?.(u.content.text);
+        } else {
+          // Out-of-turn message: hermes pushes background results back as
+          // ordinary messages [H10]. Buffering it with prompt chunks would
+          // splice a completion into the NEXT unrelated reply.
+          this.announceBuffer.push(u.content.text);
+          clearTimeout(this.announceTimer);
+          this.announceTimer = setTimeout(() => this.#flushAnnouncement(), 1200);
+        }
       }
       return;
     }

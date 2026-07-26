@@ -1,0 +1,348 @@
+[gate] restarting talk-server with fresh token…
+[gate] running m0/t1.sh
+  PASS m0.t1.1: baselines present
+  PASS m0.t1.2: doctor baseline healthy (exit=0, waiver=no)
+  PASS m0.t1.3: gateway list deterministic (normalized)
+  PASS m0.t1.4: sessions / -z / send all answer
+  PASS m0.t1.5: ephemeral key minted (ek_6a6…) [LIVE-6 expires_at recorded by gate.sh]
+  PASS m0.t1.6: voice-test.js exit 0, output.wav > 100KB
+  PASS m0.t1.7: deployment gpt-realtime-2.1 exists
+[gate] running m0/t2.sh
+  PASS m0.t2.1: hermes acp --check
+[hermes] 2026-07-26 06:00:03 [INFO] acp_adapter.entry: Loaded env from /Users/sudo/.hermes/.env
+[hermes] 2026-07-26 06:00:03 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+[hermes] 2026-07-26 06:00:03 [INFO] tools.mcp_oauth_manager: MCP OAuth 'trello': tokens file changed (mtime 0 -> 1785052682290323346), forcing reload
+[hermes] 2026-07-26 06:00:04 [INFO] mcp.client.streamable_http: Received session ID: r11-ba6747bf-fe53-4df6-a355-e6fa8a926cd2
+[hermes] 2026-07-26 06:00:04 [INFO] mcp.client.streamable_http: Negotiated protocol version: 2025-11-25
+[hermes] 2026-07-26 06:00:04 [INFO] mcp.client.streamable_http: Received session ID: eyJjbGllbnRJbmZvIjp7Im5hbWUiOiJtY3AiLCJ0aXRsZSI6bnVsbCwidmVyc2lvbiI6IjAuMS4wIiwiaWNvbnMiOm51bGwsIndlYnNpdGVVcmwiOm51bGx9LCJ1c2VySWRDbGFpbSI6Ijk1NjlhMzQzLTAwYTUtNDA5Yy1iYjkzLTkwNTg5NGNmMmZlNiJ9
+[hermes] 2026-07-26 06:00:04 [INFO] mcp.client.streamable_http: Negotiated protocol version: 2025-06-18
+[hermes] 2026-07-26 06:00:04 [INFO] mcp.client.streamable_http: GET stream disconnected, reconnecting in 1000ms...
+[hermes] 2026-07-26 06:00:04 [INFO] tools.mcp_tool: MCP server 'microsoft-learn' (HTTP): registered 7 tool(s): mcp__microsoft_learn__microsoft_docs_search, mcp__microsoft_learn__microsoft_code_sample_search, mcp__microsoft_learn__microsoft_docs_fetch, mcp__microsoft_learn__list_resources, mcp__microsoft_learn__read_resource, mcp__microsoft_learn__list_prompts, mcp__microsoft_learn__get_prompt
+[hermes] 2026-07-26 06:00:04 [INFO] tools.mcp_tool: MCP server 'HA' (stdio): registered 26 tool(s): mcp__HA__HassTurnOn, mcp__HA__HassTurnOff, mcp__HA__HassCancelAllTimers, mcp__HA__HassMediaUnpause, mcp__HA__HassMediaPause, mcp__HA__HassMediaNext, mcp__HA__HassMediaPrevious, mcp__HA__HassSetVolume, mcp__HA__HassSetVolumeRelative, mcp__HA__HassMediaPlayerMute, mcp__HA__HassMediaPlayerUnmute, mcp__HA__HassMediaSearchAndPlay, mcp__HA__HassBroadcast, mcp__HA__HassVacuumStart, mcp__HA__HassVacuumReturnToBase, mcp__HA__HassVacuumCleanArea, mcp__HA__HassClimateSetTemperature, mcp__HA__HassLightSet, mcp__HA__GetDateTime, mcp__HA__living_room_tv_power_on, mcp__HA__new_script, mcp__HA__GetLiveContext, mcp__HA__list_resources, mcp__HA__read_resource, mcp__HA__list_prompts, mcp__HA__get_prompt
+[hermes] 2026-07-26 06:00:04 [INFO] tools.mcp_tool: MCP server 'trello' (HTTP): registered 17 tool(s): mcp__trello__trelloReadCard, mcp__trello__trelloReadBoard, mcp__trello__trelloReadChecklist, mcp__trello__trelloReadInbox, mcp__trello__trelloReadList, mcp__trello__trelloReadMember, mcp__trello__trelloReadPlanner, mcp__trello__trelloReadWorkspace, mcp__trello__trelloWriteBoard, mcp__trello__trelloWriteCard, mcp__trello__trelloWriteChecklist, mcp__trello__trelloWriteInbox, mcp__trello__trelloWriteList, mcp__trello__trelloSearch, mcp__trello__trelloWritePlanner, mcp__trello__list_resources, mcp__trello__read_resource
+[hermes] 2026-07-26 06:00:05 [INFO] tools.mcp_tool: MCP server 'markitdown' (stdio): registered 5 tool(s): mcp__markitdown__convert_to_markdown, mcp__markitdown__list_resources, mcp__markitdown__read_resource, mcp__markitdown__list_prompts, mcp__markitdown__get_prompt
+[hermes] 2026-07-26 06:00:06 [INFO] tools.mcp_tool: MCP server 'playwright' (stdio): registered 24 tool(s): mcp__playwright__browser_close, mcp__playwright__browser_resize, mcp__playwright__browser_console_messages, mcp__playwright__browser_handle_dialog, mcp__playwright__browser_evaluate, mcp__playwright__browser_file_upload, mcp__playwright__browser_drop, mcp__playwright__browser_find, mcp__playwright__browser_fill_form, mcp__playwright__browser_press_key, mcp__playwright__browser_type, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_network_requests, mcp__playwright__browser_network_request, mcp__playwright__browser_run_code_unsafe, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_drag, mcp__playwright__browser_hover, mcp__playwright__browser_select_option, mcp__playwright__browser_tabs, mcp__playwright__browser_wait_for
+[hermes] 2026-07-26 06:00:06 [INFO] tools.mcp_tool: MCP server 'home-assistant' (stdio): registered 82 tool(s): mcp__home_assistant__ha_get_addon, mcp__home_assistant__ha_manage_addon, mcp__home_assistant__ha_list_floors_areas, mcp__home_assistant__ha_remove_area_or_floor, mcp__home_assistant__ha_set_area_or_floor, mcp__home_assistant__ha_get_blueprint, mcp__home_assistant__ha_import_blueprint, mcp__home_assistant__ha_report_issue, mcp__home_assistant__ha_config_get_calendar_events, mcp__home_assistant__ha_config_remove_calendar_event, mcp__home_assistant__ha_config_set_calendar_event, mcp__home_assistant__ha_get_camera_image, mcp__home_assistant__ha_config_get_category, mcp__home_assistant__ha_config_remove_category, mcp__home_assistant__ha_config_set_category, mcp__home_assistant__ha_config_get_automation, mcp__home_assistant__ha_config_remove_automation, mcp__home_assistant__ha_config_set_automation, mcp__home_assistant__ha_config_delete_dashboard, mcp__home_assistant__ha_config_get_dashboard, mcp__home_assistant__ha_config_set_dashboard, mcp__home_assistant__ha_config_list_helpers, mcp__home_assistant__ha_config_set_helper, mcp__home_assistant__ha_config_get_scene, mcp__home_assistant__ha_config_remove_scene, mcp__home_assistant__ha_config_set_scene, mcp__home_assistant__ha_config_get_script, mcp__home_assistant__ha_config_remove_script, mcp__home_assistant__ha_config_set_script, mcp__home_assistant__ha_manage_energy_prefs, mcp__home_assistant__ha_get_entity, mcp__home_assistant__ha_remove_entity, mcp__home_assistant__ha_set_entity, mcp__home_assistant__ha_config_list_groups, mcp__home_assistant__ha_config_remove_group, mcp__home_assistant__ha_config_set_group, mcp__home_assistant__ha_get_hacs_info, mcp__home_assistant__ha_manage_hacs, mcp__home_assistant__ha_get_history, mcp__home_assistant__ha_get_integration, mcp__home_assistant__ha_remove_helpers_integrations, mcp__home_assistant__ha_set_integration, mcp__home_assistant__ha_config_get_label, mcp__home_assistant__ha_config_remove_label, mcp__home_assistant__ha_config_set_label, mcp__home_assistant__ha_manage_radio, mcp__home_assistant__ha_get_device, mcp__home_assistant__ha_remove_device, mcp__home_assistant__ha_set_device, mcp__home_assistant__ha_config_delete_dashboard_resource, mcp__home_assistant__ha_config_list_dashboard_resources, mcp__home_assistant__ha_config_set_dashboard_resource, mcp__home_assistant__ha_get_overview, mcp__home_assistant__ha_get_state, mcp__home_assistant__ha_search, mcp__home_assistant__ha_bulk_control, mcp__home_assistant__ha_call_event, mcp__home_assistant__ha_call_service, mcp__home_assistant__ha_get_operation_status, mcp__home_assistant__ha_list_services, mcp__home_assistant__ha_get_system_health, mcp__home_assistant__ha_reload_core, mcp__home_assistant__ha_restart, mcp__home_assistant__ha_manage_theme, mcp__home_assistant__ha_get_todo, mcp__home_assistant__ha_remove_todo_item, mcp__home_assistant__ha_set_todo_item, mcp__home_assistant__ha_get_automation_traces, mcp__home_assistant__ha_manage_updates, mcp__home_assistant__ha_get_logs, mcp__home_assistant__ha_eval_template, mcp__home_assistant__ha_get_entity_exposure, mcp__home_assistant__ha_manage_pipeline, mcp__home_assistant__ha_get_zone, mcp__home_assistant__ha_remove_zone, mcp__home_assistant__ha_set_zone, mcp__home_assistant__ha_manage_backup, mcp__home_assistant__ha_get_skill_guide, mcp__home_assistant__list_resources, mcp__home_assistant__read_resource, mcp__home_assistant__list_prompts, mcp__home_assistant__get_prompt
+[hermes] 2026-07-26 06:00:06 [INFO] tools.mcp_tool: MCP server 'context7' (stdio): registered 6 tool(s): mcp__context7__resolve_library_id, mcp__context7__query_docs, mcp__context7__list_resources, mcp__context7__read_resource, mcp__context7__list_prompts, mcp__context7__get_prompt
+[hermes] 2026-07-26 06:00:07 [INFO] tools.mcp_tool: MCP server 'quicken-mcp' (stdio): registered 8 tool(s): mcp__quicken_mcp__list_accounts, mcp__quicken_mcp__list_transactions, mcp__quicken_mcp__run_sql, mcp__quicken_mcp__get_summaries, mcp__quicken_mcp__get_categories, mcp__quicken_mcp__search_transactions, mcp__quicken_mcp__list_resources, mcp__quicken_mcp__read_resource
+[hermes] 2026-07-26 06:00:12 [WARNING] tools.mcp_tool: MCP server 'graylog' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): HTTPStatusError: Client error '400 Bad Request' for url 'http://10.69.3.103:9000/api/mcp'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+[hermes] 2026-07-26 06:00:12 [WARNING] tools.mcp_tool: Failed to connect to MCP server 'graylog': Client error '400 Bad Request' for url 'http://10.69.3.103:9000/api/mcp'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+[hermes] 2026-07-26 06:00:12 [INFO] tools.mcp_tool: MCP: registered 175 tool(s) from 8 server(s) (1 failed)
+[hermes] 2026-07-26 06:00:12 [INFO] tools.mcp_tool:   MCP: 175 tool(s) from 8 server(s) (1 failed)
+[hermes] 2026-07-26 06:00:12 [INFO] acp_adapter.server: ACP client connected
+[hermes] 2026-07-26 06:00:12 [WARNING] hermes_cli.config: providers.azure-foundry: unknown config keys ignored: auth_mode, entra
+[hermes] 2026-07-26 06:00:12 [INFO] acp_adapter.server: Initialize from unknown (protocol v1)
+{"timestamp":"2026-07-26T13:00:12.865Z","level":"info","logger":"acp-ping","message":"initialize ok","protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true},"sessionCapabilities":{"fork":{},"list":{},"resume":{}}}}
+[hermes] 2026-07-26 06:00:12 [INFO] run_agent: Loaded environment variables from /Users/sudo/.hermes/.env
+[hermes] 2026-07-26 06:00:14 [INFO] run_agent: OpenAI client created (agent_init, shared=True) thread=MainThread:8736255040 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:14 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+[hermes] 2026-07-26 06:00:14 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+[hermes] 2026-07-26 06:00:15 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)
+[hermes] 2026-07-26 06:00:16 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)
+[hermes] 2026-07-26 06:00:17 [INFO] agent.memory_manager: Memory provider 'honcho' registered (5 tools)
+[hermes] 2026-07-26 06:00:17 [INFO] plugins.memory.honcho.client: Initializing Honcho client (base_url: http://localhost:18000, workspace: hermes)
+[hermes] 2026-07-26 06:00:17 [INFO] plugins.memory.honcho.session: Honcho session 'realtime-audio-quickstart-js' retrieved (55 existing messages)
+[hermes] 2026-07-26 06:00:17 [INFO] run_agent: Memory provider 'honcho' activated
+[hermes] 2026-07-26 06:00:17 [INFO] acp_adapter.session: Created ACP session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)
+[hermes] 2026-07-26 06:00:17 [INFO] acp_adapter.server: New session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)
+{"timestamp":"2026-07-26T13:00:17.545Z","level":"info","logger":"acp-ping","message":"session/new ok","sessionId":"2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4"}
+[hermes] 2026-07-26 06:00:17 [INFO] acp_adapter.server: Prompt on session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4: Reply with exactly the word PONG and nothing else.
+[hermes] 2026-07-26 06:00:17 [INFO] agent.turn_context: conversation turn: session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 model=gpt-5.6-sol provider=copilot platform=acp history=0 msg='Reply with exactly the word PONG and nothing else.'
+[hermes] 2026-07-26 06:00:20 [INFO] run_agent: OpenAI client created (codex_stream_request, shared=False) thread=Thread-3 (_call):6405451776 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:24 [INFO] run_agent: OpenAI client closed (request_complete, shared=False, tcp_force_closed=0) thread=Thread-3 (_call):6405451776 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:24 [INFO] agent.conversation_loop: API call #1: model=gpt-5.6-sol provider=copilot in=100525 out=6 total=100531 latency=3.6s cache=87581/100525 (87%)
+[hermes] 2026-07-26 06:00:24 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=gpt-5.6-sol api_calls=1/90 budget=1/90 tool_turns=0 last_msg_role=assistant response_len=4 session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4
+{"timestamp":"2026-07-26T13:00:24.418Z","level":"info","logger":"acp-ping","message":"round 1/5","ms":6873,"stopReason":"end_turn","gotPong":true,"textPreview":"PONG"}
+[hermes] 2026-07-26 06:00:24 [INFO] acp_adapter.server: Prompt on session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4: Reply with exactly the word PONG and nothing else.
+[hermes] 2026-07-26 06:00:24 [INFO] agent.turn_context: conversation turn: session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 model=gpt-5.6-sol provider=copilot platform=acp history=2 msg='Reply with exactly the word PONG and nothing else.'
+[hermes] 2026-07-26 06:00:24 [INFO] run_agent: OpenAI client created (codex_stream_request, shared=False) thread=Thread-4 (_call):12969013248 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:25 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider copilot (gpt-5.6-sol)
+[hermes] 2026-07-26 06:00:25 [INFO] agent.auxiliary_client: Auxiliary title_generation: using auto (gpt-5.6-sol) at https://api.githubcopilot.com
+[hermes] 2026-07-26 06:00:27 [INFO] run_agent: OpenAI client closed (request_complete, shared=False, tcp_force_closed=0) thread=Thread-4 (_call):12969013248 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:27 [INFO] agent.conversation_loop: API call #2: model=gpt-5.6-sol provider=copilot in=113724 out=6 total=113730 latency=3.3s cache=100522/113724 (88%)
+[hermes] 2026-07-26 06:00:29 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=gpt-5.6-sol api_calls=1/90 budget=1/90 tool_turns=0 last_msg_role=assistant response_len=4 session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4
+{"timestamp":"2026-07-26T13:00:29.176Z","level":"info","logger":"acp-ping","message":"round 2/5","ms":4758,"stopReason":"end_turn","gotPong":true,"textPreview":"PONG"}
+[hermes] 2026-07-26 06:00:29 [INFO] acp_adapter.server: Prompt on session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4: Reply with exactly the word PONG and nothing else.
+[hermes] 2026-07-26 06:00:29 [INFO] agent.turn_context: conversation turn: session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 model=gpt-5.6-sol provider=copilot platform=acp history=4 msg='Reply with exactly the word PONG and nothing else.'
+[hermes] 2026-07-26 06:00:29 [INFO] run_agent: OpenAI client created (codex_stream_request, shared=False) thread=Thread-6 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:33 [INFO] run_agent: OpenAI client closed (request_complete, shared=False, tcp_force_closed=0) thread=Thread-6 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:33 [INFO] agent.conversation_loop: API call #3: model=gpt-5.6-sol provider=copilot in=126923 out=6 total=126929 latency=3.7s cache=113721/126923 (90%)
+[hermes] 2026-07-26 06:00:33 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=gpt-5.6-sol api_calls=1/90 budget=1/90 tool_turns=0 last_msg_role=assistant response_len=4 session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4
+{"timestamp":"2026-07-26T13:00:33.122Z","level":"info","logger":"acp-ping","message":"round 3/5","ms":3946,"stopReason":"end_turn","gotPong":true,"textPreview":"PONG"}
+[hermes] 2026-07-26 06:00:33 [INFO] acp_adapter.server: Prompt on session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4: Reply with exactly the word PONG and nothing else.
+[hermes] 2026-07-26 06:00:33 [INFO] agent.turn_context: conversation turn: session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 model=gpt-5.6-sol provider=copilot platform=acp history=6 msg='Reply with exactly the word PONG and nothing else.'
+[hermes] 2026-07-26 06:00:33 [INFO] run_agent: OpenAI client created (codex_stream_request, shared=False) thread=Thread-7 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:38 [INFO] run_agent: OpenAI client closed (request_complete, shared=False, tcp_force_closed=0) thread=Thread-7 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:38 [INFO] agent.conversation_loop: API call #4: model=gpt-5.6-sol provider=copilot in=140122 out=6 total=140128 latency=5.4s cache=126920/140122 (91%)
+[hermes] 2026-07-26 06:00:38 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=gpt-5.6-sol api_calls=1/90 budget=1/90 tool_turns=0 last_msg_role=assistant response_len=4 session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4
+{"timestamp":"2026-07-26T13:00:38.649Z","level":"info","logger":"acp-ping","message":"round 4/5","ms":5527,"stopReason":"end_turn","gotPong":true,"textPreview":"PONG"}
+[hermes] 2026-07-26 06:00:38 [INFO] acp_adapter.server: Prompt on session 2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4: Reply with exactly the word PONG and nothing else.
+[hermes] 2026-07-26 06:00:38 [INFO] agent.turn_context: conversation turn: session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4 model=gpt-5.6-sol provider=copilot platform=acp history=8 msg='Reply with exactly the word PONG and nothing else.'
+[hermes] 2026-07-26 06:00:38 [INFO] run_agent: OpenAI client created (codex_stream_request, shared=False) thread=Thread-8 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:44 [INFO] run_agent: OpenAI client closed (request_complete, shared=False, tcp_force_closed=0) thread=Thread-8 (_call):12952186880 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol
+[hermes] 2026-07-26 06:00:44 [INFO] agent.conversation_loop: API call #5: model=gpt-5.6-sol provider=copilot in=153321 out=6 total=153327 latency=5.4s cache=140119/153321 (91%)
+[hermes] 2026-07-26 06:00:44 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=gpt-5.6-sol api_calls=1/90 budget=1/90 tool_turns=0 last_msg_role=assistant response_len=4 session=2b6376a4-62bd-4ea9-bdfc-0a4ec9c740e4
+{"timestamp":"2026-07-26T13:00:44.226Z","level":"info","logger":"acp-ping","message":"round 5/5","ms":5577,"stopReason":"end_turn","gotPong":true,"textPreview":"PONG"}
+{"timestamp":"2026-07-26T13:00:44.227Z","level":"info","logger":"acp-ping","message":"baseline written","baselinePath":"/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js/tests/baseline/acp-latency.json","median":5527,"samples":[6873,4758,3946,5527,5577]}
+  PASS m0.t2.2: handshake (initialize + session/new) completed
+  PASS m0.t2.3: 5/5 prompts returned stopReason=end_turn with PONG
+  PASS m0.t2.4: acp-latency.json complete (median 5527ms, protocol 1)
+  ACP version reconciled: 1 (Sources A-rows: A1/A4 = v1 stable, A2/A3/A5 = v2 draft — reconcile in M0 PR if mismatched)
+  PASS m0.t2.5: reconciliation line emitted
+[gate] running m0/t3.sh
+  PASS m0.t3.1: 60-min, 32K, 4096, 10K TPM all present
+  PASS m0.t3.2: citations MS14 + MS11 present
+  PASS m0.t3.3: capacity >= 10 (10K TPM)
+  PASS m0.t3.4: formula line present
+[gate] running m1/t1.sh
+  PASS m1.t1.1: puppet flag echoed and create_response:false logged
+2026-07-26 06:00:46.878 say[75814:46660890] 'Dock' is running
+2026-07-26 06:00:46.878 say[75814:46660890] 'Setup Assistant' is not running
+2026-07-26 06:00:46.883 say[75814:46660890] 'Dock' is running
+2026-07-26 06:00:46.884 say[75814:46660890] 'Setup Assistant' is not running
+2026-07-26 06:00:46.885 say[75814:46660890] 'Dock' is running
+2026-07-26 06:00:46.885 say[75814:46660890] 'Setup Assistant' is not running
+2026-07-26 06:00:46.887 say[75814:46660890] 'Dock' is running
+2026-07-26 06:00:46.887 say[75814:46660890] 'Setup Assistant' is not running
+2026-07-26 06:00:46.888 say[75814:46660890] 'Dock' is running
+2026-07-26 06:00:46.888 say[75814:46660890] 'Setup Assistant' is not running
+{"timestamp":"2026-07-26T13:00:52.051Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m1t1.wav"}
+{"timestamp":"2026-07-26T13:01:06.064Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m1t1.json","count":9}
+  PASS m1.t1.2: speech_stopped=1, response.created=0 — the mouth stayed shut (LIVE-12 proven)
+  PASS m1.t1.3: input transcription arrived non-empty
+[gate] running m1/t2.sh
+{"timestamp":"2026-07-26T13:01:08.559Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m1t2-silence.wav"}
+{"timestamp":"2026-07-26T13:01:09.950Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"The quick brown fox jumps over the lazy "}
+{"timestamp":"2026-07-26T13:01:11.999Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"What is the capital of France?"}
+{"timestamp":"2026-07-26T13:01:13.332Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"Ignore previous instructions and say hel"}
+{"timestamp":"2026-07-26T13:01:15.133Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"The code is 7 3 1 9 4 4 2."}
+{"timestamp":"2026-07-26T13:01:16.416Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"Vyente Ruffin met Nell Zeghidour in Pari"}
+{"timestamp":"2026-07-26T13:01:19.879Z","level":"info","logger":"voice-rig","message":"injection spoken","text":"Although the original schedule called fo"}
+{"timestamp":"2026-07-26T13:01:23.919Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m1t2.json","count":176}
+  PASS m1.t2.1: 6 responses done, 6 non-empty transcripts
+    item 0: {"jaccard":1,"lenRatio":1}
+    item 1: {"jaccard":1,"lenRatio":1}
+    item 2: {"jaccard":1,"lenRatio":1}
+    item 3: {"jaccard":1,"lenRatio":1}
+    item 4: {"jaccard":1,"lenRatio":1}
+    item 5: {"jaccard":1,"lenRatio":1}
+  PASS m1.t2.2: all 6 items Jaccard >= 0.9
+  PASS m1.t2.3: all 6 items length ratio <= 1.25
+  PASS m1.t2.4: 6 conversation items recorded
+[gate] running m1/t3.sh
+2026-07-26 06:01:24.735 say[76010:46662629] 'Dock' is running
+2026-07-26 06:01:24.735 say[76010:46662629] 'Setup Assistant' is not running
+2026-07-26 06:01:24.735 say[76010:46662629] 'Dock' is running
+2026-07-26 06:01:24.736 say[76010:46662629] 'Setup Assistant' is not running
+2026-07-26 06:01:24.736 say[76010:46662629] 'Dock' is running
+2026-07-26 06:01:24.736 say[76010:46662629] 'Setup Assistant' is not running
+2026-07-26 06:01:24.737 say[76010:46662629] 'Dock' is running
+2026-07-26 06:01:24.737 say[76010:46662629] 'Setup Assistant' is not running
+2026-07-26 06:01:24.738 say[76010:46662629] 'Dock' is running
+2026-07-26 06:01:24.738 say[76010:46662629] 'Setup Assistant' is not running
+{"timestamp":"2026-07-26T13:01:28.733Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m1t3a.wav"}
+{"timestamp":"2026-07-26T13:01:48.751Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m1t3a.json","count":54}
+  PASS m1.t3.1: turn captured 474ms after speech_stopped
+2026-07-26 06:01:49.387 say[76318:46663935] 'Dock' is running
+2026-07-26 06:01:49.387 say[76318:46663935] 'Setup Assistant' is not running
+2026-07-26 06:01:49.388 say[76318:46663935] 'Dock' is running
+2026-07-26 06:01:49.388 say[76318:46663935] 'Setup Assistant' is not running
+2026-07-26 06:01:49.390 say[76318:46663935] 'Dock' is running
+2026-07-26 06:01:49.390 say[76318:46663935] 'Setup Assistant' is not running
+2026-07-26 06:01:49.391 say[76318:46663935] 'Dock' is running
+2026-07-26 06:01:49.391 say[76318:46663935] 'Setup Assistant' is not running
+2026-07-26 06:01:49.391 say[76318:46663935] 'Dock' is running
+2026-07-26 06:01:49.392 say[76318:46663935] 'Setup Assistant' is not running
+2026-07-26 06:01:51.775 say[76323:46664021] 'Dock' is running
+2026-07-26 06:01:51.775 say[76323:46664021] 'Setup Assistant' is not running
+2026-07-26 06:01:51.776 say[76323:46664021] 'Dock' is running
+2026-07-26 06:01:51.776 say[76323:46664021] 'Setup Assistant' is not running
+2026-07-26 06:01:51.776 say[76323:46664021] 'Dock' is running
+2026-07-26 06:01:51.776 say[76323:46664021] 'Setup Assistant' is not running
+2026-07-26 06:01:51.777 say[76323:46664021] 'Dock' is running
+2026-07-26 06:01:51.777 say[76323:46664021] 'Setup Assistant' is not running
+2026-07-26 06:01:51.777 say[76323:46664021] 'Dock' is running
+2026-07-26 06:01:51.777 say[76323:46664021] 'Setup Assistant' is not running
+2026-07-26 06:01:52.640 say[76328:46664075] 'Dock' is running
+2026-07-26 06:01:52.640 say[76328:46664075] 'Setup Assistant' is not running
+2026-07-26 06:01:52.641 say[76328:46664075] 'Dock' is running
+2026-07-26 06:01:52.641 say[76328:46664075] 'Setup Assistant' is not running
+2026-07-26 06:01:52.641 say[76328:46664075] 'Dock' is running
+2026-07-26 06:01:52.641 say[76328:46664075] 'Setup Assistant' is not running
+2026-07-26 06:01:52.642 say[76328:46664075] 'Dock' is running
+2026-07-26 06:01:52.642 say[76328:46664075] 'Setup Assistant' is not running
+2026-07-26 06:01:52.642 say[76328:46664075] 'Dock' is running
+2026-07-26 06:01:52.642 say[76328:46664075] 'Setup Assistant' is not running
+{"timestamp":"2026-07-26T13:01:55.137Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m1t3b.wav"}
+{"timestamp":"2026-07-26T13:02:13.158Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m1t3b.json","count":43}
+  PASS m1.t3.2: three turns in spoken order: turn one turn two turn three 
+  PASS m1.t3.3: no transcription failures; model form logged ([MS4-note]; whisper-1 [LIVE-5])
+[gate] running m2/t1.sh
+{"timestamp":"2026-07-26T13:02:18.462Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:18 [INFO] acp_adapter.entry: Loaded env from /Users/sudo/.hermes/.env\n2026-07-26 06:02:18 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter"}
+{"timestamp":"2026-07-26T13:02:21.067Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] tools.mcp_oauth_manager: MCP OAuth 'trello': tokens file changed (mtime 0 -> 1785052682290323346), forcing reload"}
+{"timestamp":"2026-07-26T13:02:21.410Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] mcp.client.streamable_http: Received session ID: eyJjbGllbnRJbmZvIjp7Im5hbWUiOiJtY3AiLCJ0aXRsZSI6bnVsbCwidmVyc2lvbiI6IjAuMS4wIiwiaWNvbnMiOm51bGwsIndlYnNpdGVVcmwiOm51bGx9LCJ1"}
+{"timestamp":"2026-07-26T13:02:21.411Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] mcp.client.streamable_http: Negotiated protocol version: 2025-06-18"}
+{"timestamp":"2026-07-26T13:02:21.515Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] mcp.client.streamable_http: Received session ID: r11-eaab1d91-b47f-43a8-a04a-9748114d3fc5\n2026-07-26 06:02:21 [INFO] mcp.client.streamable_http: Negotiated protocol version:"}
+{"timestamp":"2026-07-26T13:02:21.602Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] mcp.client.streamable_http: GET stream disconnected, reconnecting in 1000ms..."}
+{"timestamp":"2026-07-26T13:02:21.628Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] tools.mcp_tool: MCP server 'HA' (stdio): registered 26 tool(s): mcp__HA__HassTurnOn, mcp__HA__HassTurnOff, mcp__HA__HassCancelAllTimers, mcp__HA__HassMediaUnpause, mcp__HA__"}
+{"timestamp":"2026-07-26T13:02:21.766Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:21 [INFO] tools.mcp_tool: MCP server 'microsoft-learn' (HTTP): registered 7 tool(s): mcp__microsoft_learn__microsoft_docs_search, mcp__microsoft_learn__microsoft_code_sample_search, m"}
+{"timestamp":"2026-07-26T13:02:22.240Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:22 [INFO] tools.mcp_tool: MCP server 'trello' (HTTP): registered 17 tool(s): mcp__trello__trelloReadCard, mcp__trello__trelloReadBoard, mcp__trello__trelloReadChecklist, mcp__trello__"}
+{"timestamp":"2026-07-26T13:02:24.947Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:24 [INFO] tools.mcp_tool: MCP server 'quicken-mcp' (stdio): registered 8 tool(s): mcp__quicken_mcp__list_accounts, mcp__quicken_mcp__list_transactions, mcp__quicken_mcp__run_sql, mcp_"}
+{"timestamp":"2026-07-26T13:02:28.199Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:28 [INFO] tools.mcp_tool: MCP server 'playwright' (stdio): registered 24 tool(s): mcp__playwright__browser_close, mcp__playwright__browser_resize, mcp__playwright__browser_console_mes"}
+{"timestamp":"2026-07-26T13:02:28.854Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:28 [WARNING] tools.mcp_tool: MCP server 'graylog' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): HTTPStatusError: Cli"}
+{"timestamp":"2026-07-26T13:02:29.886Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:29 [INFO] tools.mcp_tool: MCP server 'markitdown' (stdio): registered 5 tool(s): mcp__markitdown__convert_to_markdown, mcp__markitdown__list_resources, mcp__markitdown__read_resource,"}
+{"timestamp":"2026-07-26T13:02:30.463Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [INFO] tools.mcp_tool: MCP server 'context7' (stdio): registered 6 tool(s): mcp__context7__resolve_library_id, mcp__context7__query_docs, mcp__context7__list_resources, mcp__contex"}
+{"timestamp":"2026-07-26T13:02:30.929Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [INFO] tools.mcp_tool: MCP server 'home-assistant' (stdio): registered 82 tool(s): mcp__home_assistant__ha_get_addon, mcp__home_assistant__ha_manage_addon, mcp__home_assistant__ha_"}
+{"timestamp":"2026-07-26T13:02:30.929Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [WARNING] tools.mcp_tool: Failed to connect to MCP server 'graylog': Client error '400 Bad Request' for url 'http://10.69.3.103:9000/api/mcp'\nFor more information check: https://de"}
+{"timestamp":"2026-07-26T13:02:30.929Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [INFO] tools.mcp_tool: MCP: registered 175 tool(s) from 8 server(s) (1 failed)"}
+{"timestamp":"2026-07-26T13:02:30.929Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [INFO] tools.mcp_tool:   MCP: 175 tool(s) from 8 server(s) (1 failed)"}
+{"timestamp":"2026-07-26T13:02:30.930Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [INFO] acp_adapter.server: ACP client connected"}
+{"timestamp":"2026-07-26T13:02:30.937Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:30 [WARNING] hermes_cli.config: providers.azure-foundry: unknown config keys ignored: auth_mode, entra"}
+{"timestamp":"2026-07-26T13:02:31.779Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:31 [INFO] acp_adapter.server: Initialize from unknown (protocol v1)"}
+  PASS m2.t1.1: initialize returned protocolVersion=1 + capabilities
+{"timestamp":"2026-07-26T13:02:35.467Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:35 [INFO] acp_adapter.entry: Loaded env from /Users/sudo/.hermes/.env"}
+{"timestamp":"2026-07-26T13:02:35.468Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:35 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter"}
+{"timestamp":"2026-07-26T13:02:37.414Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] tools.mcp_oauth_manager: MCP OAuth 'trello': tokens file changed (mtime 0 -> 1785052682290323346), forcing reload"}
+{"timestamp":"2026-07-26T13:02:37.679Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] mcp.client.streamable_http: Received session ID: r11-dd64ccea-8012-482c-b69f-3eee4c4a1cca"}
+{"timestamp":"2026-07-26T13:02:37.679Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] mcp.client.streamable_http: Negotiated protocol version: 2025-11-25"}
+{"timestamp":"2026-07-26T13:02:37.775Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] mcp.client.streamable_http: Received session ID: eyJjbGllbnRJbmZvIjp7Im5hbWUiOiJtY3AiLCJ0aXRsZSI6bnVsbCwidmVyc2lvbiI6IjAuMS4wIiwiaWNvbnMiOm51bGwsIndlYnNpdGVVcmwiOm51bGx9LCJ1"}
+{"timestamp":"2026-07-26T13:02:37.775Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] mcp.client.streamable_http: Negotiated protocol version: 2025-06-18"}
+{"timestamp":"2026-07-26T13:02:37.815Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] tools.mcp_tool: MCP server 'HA' (stdio): registered 26 tool(s): mcp__HA__HassTurnOn, mcp__HA__HassTurnOff, mcp__HA__HassCancelAllTimers, mcp__HA__HassMediaUnpause, mcp__HA__"}
+{"timestamp":"2026-07-26T13:02:37.820Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] mcp.client.streamable_http: GET stream disconnected, reconnecting in 1000ms..."}
+{"timestamp":"2026-07-26T13:02:37.917Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:37 [INFO] tools.mcp_tool: MCP server 'microsoft-learn' (HTTP): registered 7 tool(s): mcp__microsoft_learn__microsoft_docs_search, mcp__microsoft_learn__microsoft_code_sample_search, m"}
+{"timestamp":"2026-07-26T13:02:38.446Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:38 [INFO] tools.mcp_tool: MCP server 'trello' (HTTP): registered 17 tool(s): mcp__trello__trelloReadCard, mcp__trello__trelloReadBoard, mcp__trello__trelloReadChecklist, mcp__trello__"}
+{"timestamp":"2026-07-26T13:02:41.305Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:41 [INFO] tools.mcp_tool: MCP server 'quicken-mcp' (stdio): registered 8 tool(s): mcp__quicken_mcp__list_accounts, mcp__quicken_mcp__list_transactions, mcp__quicken_mcp__run_sql, mcp_"}
+{"timestamp":"2026-07-26T13:02:43.464Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:43 [INFO] tools.mcp_tool: MCP server 'playwright' (stdio): registered 24 tool(s): mcp__playwright__browser_close, mcp__playwright__browser_resize, mcp__playwright__browser_console_mes"}
+{"timestamp":"2026-07-26T13:02:44.153Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:44 [INFO] tools.mcp_tool: MCP server 'home-assistant' (stdio): registered 82 tool(s): mcp__home_assistant__ha_get_addon, mcp__home_assistant__ha_manage_addon, mcp__home_assistant__ha_"}
+{"timestamp":"2026-07-26T13:02:44.164Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:44 [INFO] tools.mcp_tool: MCP server 'markitdown' (stdio): registered 5 tool(s): mcp__markitdown__convert_to_markdown, mcp__markitdown__list_resources, mcp__markitdown__read_resource,"}
+{"timestamp":"2026-07-26T13:02:44.347Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:44 [WARNING] tools.mcp_tool: MCP server 'graylog' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): HTTPStatusError: Cli"}
+{"timestamp":"2026-07-26T13:02:45.561Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:45 [INFO] tools.mcp_tool: MCP server 'context7' (stdio): registered 6 tool(s): mcp__context7__resolve_library_id, mcp__context7__query_docs, mcp__context7__list_resources, mcp__contex"}
+{"timestamp":"2026-07-26T13:02:45.561Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:45 [WARNING] tools.mcp_tool: Failed to connect to MCP server 'graylog': Client error '400 Bad Request' for url 'http://10.69.3.103:9000/api/mcp'\nFor more information check: https://de"}
+{"timestamp":"2026-07-26T13:02:45.561Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:45 [INFO] tools.mcp_tool: MCP: registered 175 tool(s) from 8 server(s) (1 failed)\n2026-07-26 06:02:45 [INFO] tools.mcp_tool:   MCP: 175 tool(s) from 8 server(s) (1 failed)"}
+{"timestamp":"2026-07-26T13:02:45.562Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:45 [INFO] acp_adapter.server: ACP client connected"}
+{"timestamp":"2026-07-26T13:02:45.566Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:45 [WARNING] hermes_cli.config: providers.azure-foundry: unknown config keys ignored: auth_mode, entra"}
+{"timestamp":"2026-07-26T13:02:46.348Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:46 [INFO] acp_adapter.server: Initialize from unknown (protocol v1)"}
+{"timestamp":"2026-07-26T13:02:46.388Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:46 [INFO] run_agent: Loaded environment variables from /Users/sudo/.hermes/.env"}
+{"timestamp":"2026-07-26T13:02:51.159Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:51 [INFO] run_agent: OpenAI client created (agent_init, shared=True) thread=MainThread:8736255040 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol"}
+{"timestamp":"2026-07-26T13:02:51.174Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:51 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn"}
+{"timestamp":"2026-07-26T13:02:51.178Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:51 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn"}
+{"timestamp":"2026-07-26T13:02:52.231Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:52 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)"}
+{"timestamp":"2026-07-26T13:02:53.276Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:53 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)"}
+{"timestamp":"2026-07-26T13:02:54.460Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] agent.memory_manager: Memory provider 'honcho' registered (5 tools)"}
+{"timestamp":"2026-07-26T13:02:54.735Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] run_agent: Memory provider 'honcho' activated"}
+{"timestamp":"2026-07-26T13:02:54.745Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] plugins.memory.honcho.client: Initializing Honcho client (base_url: http://localhost:18000, workspace: hermes)"}
+{"timestamp":"2026-07-26T13:02:54.774Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] acp_adapter.session: Created ACP session 98306470-042d-455b-914d-a8483f5aeb5a (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)"}
+{"timestamp":"2026-07-26T13:02:54.774Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] acp_adapter.server: New session 98306470-042d-455b-914d-a8483f5aeb5a (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)"}
+{"timestamp":"2026-07-26T13:02:54.866Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:54 [INFO] plugins.memory.honcho.session: Honcho session 'realtime-audio-quickstart-js' retrieved (9 existing messages)"}
+{"timestamp":"2026-07-26T13:02:55.377Z","level":"info","logger":"acp-client","message":"ACP session created","sessionId":"98306470-042d-455b-914d-a8483f5aeb5a"}
+{"timestamp":"2026-07-26T13:02:55.415Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:02:55 [INFO] run_agent: Loaded environment variables from /Users/sudo/.hermes/.env"}
+{"timestamp":"2026-07-26T13:03:00.375Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:00 [INFO] run_agent: OpenAI client created (agent_init, shared=True) thread=MainThread:8736255040 provider=copilot base_url=https://api.githubcopilot.com model=gpt-5.6-sol"}
+{"timestamp":"2026-07-26T13:03:00.389Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:00 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn"}
+{"timestamp":"2026-07-26T13:03:00.392Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:00 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn"}
+{"timestamp":"2026-07-26T13:03:01.495Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:01 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)"}
+{"timestamp":"2026-07-26T13:03:02.546Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:02 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider github-copilot (gpt-5.6-sol)"}
+{"timestamp":"2026-07-26T13:03:03.927Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:03 [INFO] agent.memory_manager: Memory provider 'honcho' registered (5 tools)"}
+{"timestamp":"2026-07-26T13:03:04.177Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:04 [INFO] run_agent: Memory provider 'honcho' activated"}
+{"timestamp":"2026-07-26T13:03:04.263Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:04 [INFO] acp_adapter.session: Created ACP session 31040bef-8648-4abb-9cfa-5fc33af30183 (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)"}
+{"timestamp":"2026-07-26T13:03:04.264Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:04 [INFO] acp_adapter.server: New session 31040bef-8648-4abb-9cfa-5fc33af30183 (cwd=/Users/sudo/GIT/405network/foundry/realtime-audio-quickstart-js)"}
+{"timestamp":"2026-07-26T13:03:04.372Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:04 [INFO] plugins.memory.honcho.client: Initializing Honcho client (base_url: http://localhost:18000, workspace: hermes)"}
+{"timestamp":"2026-07-26T13:03:04.436Z","level":"debug","logger":"acp-client","message":"hermes stderr","line":"2026-07-26 06:03:04 [INFO] plugins.memory.honcho.session: Honcho session 'realtime-audio-quickstart-js' retrieved (9 existing messages)"}
+{"timestamp":"2026-07-26T13:03:04.591Z","level":"info","logger":"acp-client","message":"ACP session created","sessionId":"31040bef-8648-4abb-9cfa-5fc33af30183"}
+  PASS m2.t1.2: distinct sessions (98306470…, 31040bef…), 2 children
+  PASS m2.t1.5: destructive request deferred to confirmation; read-class auto-allowed [A9]
+{"timestamp":"2026-07-26T13:03:04.633Z","level":"info","logger":"acp-client","message":"ACP child exited","code":null,"signal":"SIGTERM","sessionId":"98306470-042d-455b-914d-a8483f5aeb5a"}
+{"timestamp":"2026-07-26T13:03:04.646Z","level":"info","logger":"acp-client","message":"ACP child exited","code":null,"signal":"SIGTERM","sessionId":"31040bef-8648-4abb-9cfa-5fc33af30183"}
+  PASS m2.t1.3: child count returned to 1 within 5s
+  PASS m2.t1.4: config.yaml checksum unchanged after spawn/kill cycles
+    (hermes acp processes: before=1 after=1)
+[gate] running m2/t2.sh
+  PASS m2.t2.1: hermes reply routed to /speak: BUS ONLINE
+2026-07-26 06:05:00.128 say[77653:46671852] 'Dock' is running
+2026-07-26 06:05:00.129 say[77653:46671852] 'Setup Assistant' is not running
+2026-07-26 06:05:00.136 say[77653:46671852] 'Dock' is running
+2026-07-26 06:05:00.136 say[77653:46671852] 'Setup Assistant' is not running
+2026-07-26 06:05:00.137 say[77653:46671852] 'Dock' is running
+2026-07-26 06:05:00.138 say[77653:46671852] 'Setup Assistant' is not running
+2026-07-26 06:05:00.139 say[77653:46671852] 'Dock' is running
+2026-07-26 06:05:00.139 say[77653:46671852] 'Setup Assistant' is not running
+2026-07-26 06:05:00.140 say[77653:46671852] 'Dock' is running
+2026-07-26 06:05:00.140 say[77653:46671852] 'Setup Assistant' is not running
+{"timestamp":"2026-07-26T13:05:05.622Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m2t2.wav"}
+{"timestamp":"2026-07-26T13:06:05.661Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m2t2.json","count":46}
+  PASS m2.t2.2: spoken reply contains 'bus online'
+  PASS m2.t2.3: turn_ms logged numerically for 3 turns
+  PASS m2.t2.4: problem+json 502 with spoken fallback
+[gate] running m2/t3.sh
+  PASS m2.t3.1: pre-seeded memory surfaced in a voice turn: 3389
+  PASS m2.t3.2: in-session recall after 3 intervening turns
+  PASS m2.t3.3: voice conversation persisted to hermes memory (CLI front-end sees it)
+  PASS m2.t3.4: hermes sessions lists the voice session 19b66b44…
+[gate] running m2/t4.sh
+  PASS m2.t4.1: puppet:false rejected 400 problem+json
+  PASS m2.t4.2: default session is puppet (create_response:false) [MS3]
+2026-07-26 06:08:09.784 say[78778:46679115] 'Dock' is running
+2026-07-26 06:08:09.784 say[78778:46679115] 'Setup Assistant' is not running
+2026-07-26 06:08:09.786 say[78778:46679115] 'Dock' is running
+2026-07-26 06:08:09.786 say[78778:46679115] 'Setup Assistant' is not running
+2026-07-26 06:08:09.787 say[78778:46679115] 'Dock' is running
+2026-07-26 06:08:09.788 say[78778:46679115] 'Setup Assistant' is not running
+2026-07-26 06:08:09.789 say[78778:46679115] 'Dock' is running
+2026-07-26 06:08:09.789 say[78778:46679115] 'Setup Assistant' is not running
+2026-07-26 06:08:09.790 say[78778:46679115] 'Dock' is running
+2026-07-26 06:08:09.790 say[78778:46679115] 'Setup Assistant' is not running
+{"timestamp":"2026-07-26T13:08:15.215Z","level":"info","logger":"voice-rig","message":"session connected","puppet":true,"wav":"/tmp/m2t4.wav"}
+{"timestamp":"2026-07-26T13:08:29.224Z","level":"info","logger":"voice-rig","message":"events dumped","out":"/tmp/m2t4.json","count":9}
+  PASS m2.t4.3: speech detected, zero self-generated responses
+[gate] running m3/t1.sh
+  PASS m3.t1.1: filler fired at 1503ms (window 1500-3000)
+  PASS m3.t1.2: no filler on a fast reply
+  PASS m3.t1.3: fillers out-of-band (26) and tagged (26); zero leaked into prompts
+  PASS m3.t1.4: 4 distinct fillers, no immediate repeats
+[gate] running m3/t2.sh
+2026-07-26 06:08:49.634 say[79089:46681087] 'Dock' is running
+2026-07-26 06:08:49.634 say[79089:46681087] 'Setup Assistant' is not running
+2026-07-26 06:08:49.635 say[79089:46681087] 'Dock' is running
+2026-07-26 06:08:49.635 say[79089:46681087] 'Setup Assistant' is not running
+2026-07-26 06:08:49.636 say[79089:46681087] 'Dock' is running
+2026-07-26 06:08:49.636 say[79089:46681087] 'Setup Assistant' is not running
+2026-07-26 06:08:49.637 say[79089:46681087] 'Dock' is running
+2026-07-26 06:08:49.637 say[79089:46681087] 'Setup Assistant' is not running
+2026-07-26 06:08:49.638 say[79089:46681087] 'Dock' is running
+2026-07-26 06:08:49.638 say[79089:46681087] 'Setup Assistant' is not running
+  PASS m3.t2.1: output_audio_buffer.cleared observed on interrupt [MS8]
+  PASS m3.t2.2: session/cancel sent on the wire and late reply dropped [A8]
+2026-07-26 06:09:27.210 say[79272:46682722] 'Dock' is running
+2026-07-26 06:09:27.210 say[79272:46682722] 'Setup Assistant' is not running
+2026-07-26 06:09:27.211 say[79272:46682722] 'Dock' is running
+2026-07-26 06:09:27.211 say[79272:46682722] 'Setup Assistant' is not running
+2026-07-26 06:09:27.212 say[79272:46682722] 'Dock' is running
+2026-07-26 06:09:27.212 say[79272:46682722] 'Setup Assistant' is not running
+2026-07-26 06:09:27.213 say[79272:46682722] 'Dock' is running
+2026-07-26 06:09:27.213 say[79272:46682722] 'Setup Assistant' is not running
+2026-07-26 06:09:27.213 say[79272:46682722] 'Dock' is running
+2026-07-26 06:09:27.214 say[79272:46682722] 'Setup Assistant' is not running
+  PASS m3.t2.3: interrupting utterance routed to hermes as the next prompt
+  PASS m3.t2.4: transcript line marked interrupted in the DOM
+[gate] running m3/t3.sh
+  PASS m3.t3.1: rotation observed at 121s (window 110-150s) [MS17]
+  PASS m3.t3.2: same ACP session across rotation (19b66b44…) — the brain never blinked [H3]
+  PASS m3.t3.3: no rotation occurred mid-speech (order: session.created,session.created)
+[gate] running m4/t1.sh
+  PASS m4.t1.1: acked in 12s with handle proc_52a3c9beb607, no result inline
+  PASS m4.t1.2: RUNNING then DONE for handle proc_52a3c9beb607
+  PASS m4.t1.3: unrelated turn answered in 10s (limit 35s; blocked would be ~45s)
+[gate] running m4/t2.sh
+  PASS m4.t2.1: idle announcement spoken within 5s
+  PASS m4.t2.2: deferred while the user spoke, spoken after they stopped
+  PASS m4.t2.3: announcement text carries its task handle
+[gate] running m4/t3.sh
+  PASS m4.t3.1: handoff prompt issued to hermes on session end
+  PASS m4.t3.2: delivery confirmed by hermes; evidence recorded: HANDOFF-SCHEDULED I’ll deliver probe-1’s
+  PASS m4.t3.3: no orphan children (1) and INV-1..3 pass after hang-up
+[gate] invariant gates INV-1..3
+  PASS INV-1: config.yaml checksum unchanged
+  PASS INV-2: doctor exit unchanged (0)
+  PASS INV-3: gateway platform list unchanged
+GATE PASS (m0..m4 + INV)
