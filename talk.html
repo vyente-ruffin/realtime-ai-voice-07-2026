@@ -27,7 +27,7 @@
   button:disabled { opacity: 0.4; cursor: default; }
   #muteBtn.muted { background: #d33; color: #fff; border-color: #d33; }
   #status { margin: 0.8rem 0; font-weight: 600; }
-  #viz { width: 100%; height: 72px; display: block; border: 1px solid #8884;
+  #viz { width: 100%; height: 150px; display: block; border: 1px solid #8884;
     border-radius: 8px; margin-bottom: 0.8rem; }
   .chat { border: 1px solid #8884; border-radius: 8px; padding: 1rem;
     min-height: 160px; }
@@ -220,32 +220,62 @@ function levelFrom(analyser, buf) {
   return Math.min(1, Math.sqrt(sum / buf.length) * 3);
 }
 
+// Smoothed levels so the orb glides instead of flickering
+let micLevelSm = 0;
+let modelLevelSm = 0;
+
 function drawViz() {
   if (!vizRunning) return;
   const w = viz.width = viz.clientWidth * devicePixelRatio;
   const h = viz.height = viz.clientHeight * devicePixelRatio;
   vctx.clearRect(0, 0, w, h);
 
-  const rows = [
-    { label: "You", analyser: micAnalyser, color: "#2f6fdd", dim: muted },
-    { label: "Model", analyser: remoteAnalyser, color: "#2fa463", dim: false },
-  ];
   const buf = new Uint8Array(1024);
-  const rowH = h / rows.length;
+  const micLevel = muted ? 0 : (micAnalyser ? levelFrom(micAnalyser, buf) : 0);
+  const modelLevel = remoteAnalyser ? levelFrom(remoteAnalyser, buf) : 0;
+  micLevelSm += (micLevel - micLevelSm) * 0.25;
+  modelLevelSm += (modelLevel - modelLevelSm) * 0.25;
 
-  rows.forEach((row, i) => {
-    const level = row.analyser ? levelFrom(row.analyser, buf) : 0;
-    const y = i * rowH;
-    vctx.globalAlpha = row.dim ? 0.25 : 1;
-    vctx.fillStyle = row.color;
-    vctx.fillRect(90 * devicePixelRatio, y + rowH * 0.25,
-      (w - 110 * devicePixelRatio) * level, rowH * 0.5);
-    vctx.globalAlpha = 1;
-    vctx.fillStyle = getComputedStyle(document.body).color;
-    vctx.font = `${13 * devicePixelRatio}px sans-serif`;
-    vctx.textBaseline = "middle";
-    vctx.fillText(row.label + (row.dim ? " (muted)" : ""), 10 * devicePixelRatio, y + rowH / 2);
-  });
+  const cx = w / 2;
+  const cy = h / 2;
+  const breathe = 1 + 0.03 * Math.sin(performance.now() / 600);
+  const baseR = Math.min(w, h) * 0.22 * breathe;
+
+  // Core = the model's voice (green glow that swells as it speaks)
+  const coreR = baseR * (1 + modelLevelSm * 1.1);
+  const glow = vctx.createRadialGradient(cx, cy, coreR * 0.1, cx, cy, coreR * 1.6);
+  const coreColor = muted ? "136,136,136" : "47,164,99";
+  glow.addColorStop(0, `rgba(${coreColor},0.95)`);
+  glow.addColorStop(0.55, `rgba(${coreColor},${0.35 + modelLevelSm * 0.5})`);
+  glow.addColorStop(1, `rgba(${coreColor},0)`);
+  vctx.fillStyle = glow;
+  vctx.beginPath();
+  vctx.arc(cx, cy, coreR * 1.6, 0, Math.PI * 2);
+  vctx.fill();
+
+  // Ring = your voice (blue ring that expands as you talk)
+  const ringR = coreR * 1.15 + baseR * micLevelSm * 1.4;
+  vctx.lineWidth = (2 + micLevelSm * 10) * devicePixelRatio;
+  vctx.strokeStyle = muted
+    ? "rgba(160,160,160,0.35)"
+    : `rgba(47,111,221,${0.35 + micLevelSm * 0.65})`;
+  vctx.beginPath();
+  vctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+  vctx.stroke();
+
+  // Label under the orb
+  vctx.fillStyle = getComputedStyle(document.body).color;
+  vctx.globalAlpha = 0.6;
+  vctx.font = `${12 * devicePixelRatio}px sans-serif`;
+  vctx.textAlign = "center";
+  const label = muted
+    ? "muted"
+    : modelLevelSm > 0.06 ? "speaking"
+    : micLevelSm > 0.06 ? "hearing you"
+    : "listening";
+  vctx.fillText(label, cx, h - 12 * devicePixelRatio);
+  vctx.globalAlpha = 1;
+  vctx.textAlign = "start";
 
   requestAnimationFrame(drawViz);
 }
