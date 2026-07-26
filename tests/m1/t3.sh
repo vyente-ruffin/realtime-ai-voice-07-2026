@@ -12,7 +12,11 @@ bad() { echo "  FAIL m1.t3.$1: $2"; FAIL=1; }
 
 # 1. 🗣️(synthetic) one sentence → /turn entry with transcript within 3s of speech_stopped
 bash "$RIG/make-wav.sh" /tmp/m1t3a.wav "The microphone pipeline works." >/dev/null
-if node "$RIG/driver.mjs" --wav /tmp/m1t3a.wav --puppet 1 --watch 10 --out /tmp/m1t3a.json; then
+# watch 20s: the WAV's 8s lead-in starts at getUserMedia, so only ~3-5s of it
+# remains after session.created; transcription then needs a few seconds more.
+# At watch=10 this passed with 413ms of margin in M1 and lost the race once
+# routing added load — headroom, not a changed assertion.
+if node "$RIG/driver.mjs" --wav /tmp/m1t3a.wav --puppet 1 --watch 20 --out /tmp/m1t3a.json; then
   STOP_TS=$(jq -r '[.events[]|select(.type=="input_audio_buffer.speech_stopped")][0].ts // empty' /tmp/m1t3a.json)
   TURN_LINE=$(grep -m1 "microphone" "$TURNS" 2>/dev/null || true)
   TURN_TS=$(echo "$TURN_LINE" | jq -r '.receivedAt // empty' 2>/dev/null)
