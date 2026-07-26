@@ -460,6 +460,13 @@ const server = createServer(async (req, res) => {
 
 // Loopback-only by default (security review): LAN access goes through an SSH
 // tunnel (which targets localhost). Set HOST=0.0.0.0 explicitly to widen.
+// Warm the brain at boot: ACP init costs ~30-60s (hermes loads its full MCP
+// tool set), and paying that on the user's first spoken turn is a minute of
+// dead air. Failures here are non-fatal — the next turn retries.
+getBrain()
+  .then((c) => logger.info("Brain warm", { acpSession: c.sessionId }))
+  .catch((err) => logger.warn("Brain warm-up failed; will retry on first turn", { error: err.message }));
+
 server.listen(PORT, process.env.HOST || "127.0.0.1", () => {
   logger.info("Talk server ready", {
     url: `http://localhost:${PORT}`,
