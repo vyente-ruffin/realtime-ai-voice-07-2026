@@ -4,3 +4,4 @@ output.wav
 output.pcm
 *.log
 nohup.out
+.env
