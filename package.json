@@ -4,7 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "bash scripts/gate.sh 0",
+    "freeze-baseline": "bash scripts/freeze-baseline.sh",
+    "gate:m0": "bash scripts/gate.sh 0",
+    "gate:m1": "bash scripts/gate.sh 1",
+    "gate:m2": "bash scripts/gate.sh 2",
+    "gate:m3": "bash scripts/gate.sh 3",
+    "gate:m4": "bash scripts/gate.sh 4",
+    "gate:m5": "bash scripts/gate.sh 5"
   },
   "keywords": [],
   "author": "",
