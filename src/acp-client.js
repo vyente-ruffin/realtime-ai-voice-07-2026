@@ -33,6 +33,7 @@ export class AcpClient {
     this.chunks = [];
     this.pendingPermissions = new Map();
     this.dead = false;
+    this.inFlight = false;
   }
 
   // A client whose child has exited must never be handed to a caller: the
@@ -85,11 +86,17 @@ export class AcpClient {
     if (!this.sessionId) throw new Error("no ACP session");
     this.chunks = [];
     const started = Date.now();
-    const res = await this.#request(
-      "session/prompt",
-      { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
-      PROMPT_TIMEOUT_MS
-    );
+    this.inFlight = true;
+    let res;
+    try {
+      res = await this.#request(
+        "session/prompt",
+        { sessionId: this.sessionId, prompt: [{ type: "text", text }] },
+        PROMPT_TIMEOUT_MS
+      );
+    } finally {
+      this.inFlight = false;
+    }
     return {
       text: this.chunks.join("").trim(),
       stopReason: res?.stopReason ?? "unknown",
@@ -100,13 +107,19 @@ export class AcpClient {
   // Barge-in: notification, not a request [A8]. Pending permission requests
   // must then be answered "cancelled" [A9].
   cancel() {
-    if (!this.sessionId || !this.child) return;
+    if (!this.sessionId || !this.child) return false;
+    // [A8] cancels ONGOING operations. Sending it with no turn in flight is
+    // meaningless — and empirically corrupts hermes' ACP adapter, which then
+    // fails the NEXT prompt with "'NoneType' object has no attribute
+    // 'startswith'". Barge-in on a first utterance hits exactly this.
+    if (!this.inFlight) return false;
     this.#send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.sessionId } });
     for (const [id] of this.pendingPermissions) {
       this.#send({ jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } });
     }
     this.pendingPermissions.clear();
     logger.info("session/cancel sent", { sessionId: this.sessionId });
+    return true;
   }
 
   // Permission policy [A9]: auto-allow read-class work only. Anything that can

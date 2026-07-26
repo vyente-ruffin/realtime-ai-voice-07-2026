@@ -178,11 +178,17 @@ function sendFiller() {
 let turnEpoch = 0;
 
 export function bargeIn() {
+  // The epoch always advances so a late reply is dropped; the protocol cancel
+  // only goes out when hermes actually has work in flight [A8].
   turnEpoch += 1;
-  if (brain) brain.cancel();
+  const sent = brain ? brain.cancel() : false;
   appendFileSync(
     join(logsDir, "cancel.log"),
-    JSON.stringify({ at: new Date().toISOString(), event: "session/cancel", epoch: turnEpoch }) + "\n"
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event: sent ? "session/cancel" : "barge-in-noop",
+      epoch: turnEpoch,
+    }) + "\n"
   );
 }
 
