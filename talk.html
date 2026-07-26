@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+<meta name="voice-auth" content="__VOICE_AUTH__">
 <title>Voice Lab — gpt-realtime-2.1</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -250,9 +251,54 @@ const PERSONAS = {
     "You are a dramatic storyteller. Tell vivid, short stories with distinct character voices and build suspense. Ask the listener to choose what happens next at key moments.",
 };
 
+// Machine-readable event log for the synthetic voice rig (tests/rig/driver.mjs).
+window.__voiceLabEvents = [];
+const urlParams = new URLSearchParams(location.search);
+const puppetMode = urlParams.get("puppet") === "1";
+const VOICE_AUTH = document.querySelector('meta[name="voice-auth"]').content;
+const authHeaders = { "Content-Type": "application/json", "X-Voice-Auth": VOICE_AUTH };
+
+// Injections that arrive before the data channel opens are queued, not
+// dropped — from M2 these carry hermes' actual words.
+const speakQueue = [];
+
+function speak(text) {
+  if (!dataChannel || dataChannel.readyState !== "open") {
+    speakQueue.push(text);
+    window.__voiceLabEvents.push({ ts: Date.now(), type: "speak.queued", text });
+    return;
+  }
+  window.__voiceLabEvents.push({ ts: Date.now(), type: "speak.received", text });
+  dataChannel.send(JSON.stringify({
+    type: "response.create",
+    response: {
+      instructions:
+        "Repeat the following message exactly, verbatim, with natural warm delivery. Do not add, remove, answer, or rephrase anything: «" +
+        text.replace(/[«»]/g, "") + "»",
+    },
+  }));
+}
+
+function flushSpeakQueue() {
+  while (speakQueue.length && dataChannel && dataChannel.readyState === "open") {
+    speak(speakQueue.shift());
+  }
+}
+
+function recordEvent(event) {
+  window.__voiceLabEvents.push({
+    ts: Date.now(),
+    type: event.type,
+    item_id: event.item_id ?? event.item?.id ?? null,
+    transcript: event.transcript ?? null,
+    text: event.type === "response.output_audio_transcript.done" ? (event.transcript ?? null) : null,
+  });
+}
+
 let pc = null;
 let mic = null;
 let dataChannel = null;
+let speakSource = null;
 let audioCtx = null;
 let micAnalyser = null;
 let remoteAnalyser = null;
@@ -322,6 +368,7 @@ function addLine(cls, text) {
 }
 
 function handleEvent(event) {
+  recordEvent(event);
   switch (event.type) {
     case "session.created":
       setStatus("🟢 Connected — start talking");
@@ -354,6 +401,12 @@ function handleEvent(event) {
       } else if (event.transcript) {
         addLine("you", "You: " + text);
       }
+      // Ears → server: the transcript is all the brain needs [MS4].
+      fetch("/turn", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ item_id: event.item_id, transcript: event.transcript || "" }),
+      }).catch(() => { /* server down; page keeps working */ });
       break;
     }
     case "conversation.item.input_audio_transcription.failed": {
@@ -497,13 +550,14 @@ async function start() {
     setStatus("Minting ephemeral key…");
     const tokenResp = await fetch("/token", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders,
       body: JSON.stringify({
         voice: voiceSel.value,
         speed: Number(speedEl.value),
         silence_duration_ms: Number(patienceEl.value),
         noise_reduction: noiseSel.value || undefined,
         instructions: instructionsEl.value,
+        puppet: puppetMode,
       }),
     });
     if (!tokenResp.ok) {
@@ -551,9 +605,30 @@ async function start() {
     pc.addTrack(mic.getTracks()[0], mic);
 
     dataChannel = pc.createDataChannel("oai-events");
-    dataChannel.onopen = () => logMeta("Data channel open.");
+    dataChannel.onopen = () => { logMeta("Data channel open."); flushSpeakQueue(); };
     dataChannel.onmessage = (e) => {
       try { handleEvent(JSON.parse(e.data)); } catch { /* non-JSON frame */ }
+    };
+
+    // Server → mouth: /speak relays arrive over SSE; each becomes a
+    // per-response instructions override — say exactly this [MS6][C1].
+    speakSource = new EventSource("/events?auth=" + encodeURIComponent(VOICE_AUTH));
+    speakSource.onopen = () => {
+      window.__voiceLabEvents.push({ ts: Date.now(), type: "sse.open" });
+      logMeta("Control channel open.");
+    };
+    speakSource.onerror = () => {
+      window.__voiceLabEvents.push({ ts: Date.now(), type: "sse.error" });
+    };
+    speakSource.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      window.__voiceLabEvents.push({
+        ts: Date.now(), type: "sse.message", text: msg.text ?? null,
+        dcState: dataChannel ? dataChannel.readyState : "null",
+      });
+      if (msg.type !== "speak") return;
+      speak(msg.text);
     };
 
     setStatus("Negotiating WebRTC…");
@@ -588,6 +663,7 @@ async function start() {
 
 function stop() {
   vizRunning = false;
+  if (speakSource) { speakSource.close(); speakSource = null; }
   if (dataChannel) { dataChannel.close(); dataChannel = null; }
   if (pc) { pc.close(); pc = null; }
   if (mic) { mic.getTracks().forEach((t) => t.stop()); mic = null; }
