@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+output.wav
+output.pcm
+*.log
+nohup.out

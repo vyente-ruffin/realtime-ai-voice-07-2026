@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talk to gpt-realtime-2.1</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;
+  }
+  h1 { font-size: 1.3rem; }
+  button {
+    font-size: 1.1rem; padding: 0.6rem 1.4rem; border-radius: 8px;
+    border: 1px solid #888; cursor: pointer; margin-right: 0.5rem;
+  }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #status { margin: 1rem 0; font-weight: 600; }
+  .chat { border: 1px solid #8884; border-radius: 8px; padding: 1rem;
+    min-height: 200px; }
+  .you { color: #2f6fdd; margin: 0.4rem 0; }
+  .model { margin: 0.4rem 0; }
+  .meta { opacity: 0.6; font-size: 0.85rem; margin-top: 1rem;
+    white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>🎙️ Talk to gpt-realtime-2.1</h1>
+<p>Click <b>Start</b>, allow microphone access, and just speak. The model listens, detects when you stop talking, and answers out loud.</p>
+<label for="voiceSel">Voice:</label>
+<select id="voiceSel" style="font-size:1.05rem; padding:0.5rem; border-radius:8px; margin-right:0.8rem;">
+  <option value="cedar" selected>cedar — natural male (newest)</option>
+  <option value="marin">marin — natural female (newest)</option>
+  <option value="alloy">alloy — neutral</option>
+  <option value="ash">ash — warm male</option>
+  <option value="ballad">ballad — expressive British male</option>
+  <option value="coral">coral — warm female</option>
+  <option value="echo">echo — clear male</option>
+  <option value="sage">sage — soft female</option>
+  <option value="shimmer">shimmer — bright female</option>
+  <option value="verse">verse — versatile male</option>
+</select>
+<button id="startBtn">Start</button>
+<button id="stopBtn" disabled>Stop</button>
+<div id="status">Idle</div>
+<div class="chat" id="chat"></div>
+<div class="meta" id="meta"></div>
+
+<script>
+let pc = null;
+let mic = null;
+let dataChannel = null;
+const audioEl = new Audio();
+audioEl.autoplay = true;
+
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const voiceSel = document.getElementById("voiceSel");
+const statusEl = document.getElementById("status");
+const chatEl = document.getElementById("chat");
+const metaEl = document.getElementById("meta");
+
+function setStatus(text) { statusEl.textContent = text; }
+function logMeta(text) { metaEl.textContent += text + "\n"; }
+
+let currentModelLine = null;
+let dropTranscript = false;
+
+function markInterrupted() {
+  if (currentModelLine) {
+    currentModelLine.textContent += " ⏹ (interrupted — the model's memory is cut here too)";
+    currentModelLine = null;
+    dropTranscript = true;
+  }
+}
+
+function addLine(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls;
+  div.textContent = text;
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return div;
+}
+
+function handleEvent(event) {
+  switch (event.type) {
+    case "session.created":
+      setStatus("🟢 Connected — start talking");
+      break;
+    case "input_audio_buffer.speech_started":
+      setStatus("🎤 Listening…");
+      break;
+    case "output_audio_buffer.cleared":
+      markInterrupted();
+      break;
+    case "response.created":
+      dropTranscript = false;
+      break;
+    case "input_audio_buffer.speech_stopped":
+      setStatus("🤔 Thinking…");
+      break;
+    case "conversation.item.input_audio_transcription.completed":
+      if (event.transcript) addLine("you", "You: " + event.transcript.trim());
+      break;
+    case "response.output_audio_transcript.delta":
+      if (dropTranscript) break;
+      if (!currentModelLine) currentModelLine = addLine("model", "Model: ");
+      currentModelLine.textContent += event.delta;
+      setStatus("🔊 Speaking…");
+      break;
+    case "response.output_audio_transcript.done":
+      currentModelLine = null;
+      break;
+    case "response.done":
+      setStatus("🟢 Your turn — keep talking or press Stop");
+      break;
+    case "error":
+      logMeta("Error event: " + JSON.stringify(event));
+      break;
+  }
+}
+
+async function start() {
+  startBtn.disabled = true;
+  voiceSel.disabled = true;
+  try {
+    setStatus("Minting ephemeral key…");
+    const tokenResp = await fetch("/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: voiceSel.value }),
+    });
+    if (!tokenResp.ok) {
+      throw new Error("Token service error: " + (await tokenResp.text()));
+    }
+    const { ephemeralKey, callsUrl, voice } = await tokenResp.json();
+    if (!ephemeralKey) throw new Error("No ephemeral key in response.");
+    logMeta("Ephemeral key received. Voice: " + voice);
+
+    setStatus("Requesting microphone…");
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === "audioinput");
+    if (inputs.length === 0) {
+      throw new Error(
+        "No microphone detected on this computer. Plug in a USB/Bluetooth headset (AirPods work) and reload the page."
+      );
+    }
+    logMeta("Microphones found: " + inputs.length);
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        throw new Error(
+          "Microphone access denied. Check browser permission for this site AND the OS-level mic permission (macOS: System Settings → Privacy & Security → Microphone → allow your browser)."
+        );
+      }
+      if (err.name === "NotFoundError") {
+        throw new Error(
+          "No usable microphone found. Plug in a headset and reload the page."
+        );
+      }
+      throw err;
+    }
+
+    pc = new RTCPeerConnection();
+    pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+    pc.addTrack(mic.getTracks()[0], mic);
+
+    dataChannel = pc.createDataChannel("oai-events");
+    dataChannel.onopen = () => logMeta("Data channel open.");
+    dataChannel.onmessage = (e) => {
+      try { handleEvent(JSON.parse(e.data)); } catch { /* non-JSON frame */ }
+    };
+
+    setStatus("Negotiating WebRTC…");
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const sdpResp = await fetch(callsUrl, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + ephemeralKey,
+        "Content-Type": "application/sdp",
+      },
+      body: offer.sdp,
+    });
+    if (!sdpResp.ok) {
+      throw new Error("SDP exchange failed: " + sdpResp.status + " " + (await sdpResp.text()));
+    }
+    await pc.setRemoteDescription({ type: "answer", sdp: await sdpResp.text() });
+
+    stopBtn.disabled = false;
+    setStatus("🟢 Connected — start talking");
+  } catch (err) {
+    setStatus("❌ " + err.message);
+    logMeta(String(err.stack || err));
+    stop();
+  }
+}
+
+function stop() {
+  if (dataChannel) { dataChannel.close(); dataChannel = null; }
+  if (pc) { pc.close(); pc = null; }
+  if (mic) { mic.getTracks().forEach((t) => t.stop()); mic = null; }
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  voiceSel.disabled = false;
+  if (!statusEl.textContent.startsWith("❌")) setStatus("Stopped");
+}
+
+startBtn.addEventListener("click", start);
+stopBtn.addEventListener("click", stop);
+</script>
+</body>
+</html>

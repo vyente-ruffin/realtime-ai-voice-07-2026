@@ -1,0 +1,206 @@
+# 🎙️ Realtime AI Voice — Talk to GPT Realtime on Azure AI Foundry
+
+Build a browser page where you **talk to an AI with your voice and it talks back** — with real interruption ("barge-in"), selectable voices, and no API keys ever touching the browser. Built July 2026 against `gpt-realtime-2.1`, tested end-to-end, including every mistake we hit along the way (documented in [Appendix A](#appendix-a--the-mistakes-we-actually-hit)).
+
+---
+
+## WHAT you're building
+
+Two test paths, smallest first:
+
+| # | Path | What it proves | Files |
+|---|------|----------------|-------|
+| 1 | **Smoke test** — send text, get spoken audio back as a `.wav` file | Your deployment works at all | `voice-test.js` |
+| 2 | **Live conversation** — talk into your mic, AI answers out loud, interrupt it mid-sentence | The real voice experience | `talk-server.js` + `talk.html` |
+
+```mermaid
+flowchart LR
+    subgraph You["🧑 Your machine"]
+        MIC["🎤 Microphone"] --> BROWSER["Browser page<br/>talk.html"]
+        BROWSER --> SPK["🔊 Speakers"]
+        SERVER["Local token server<br/>talk-server.js<br/>(holds your real Azure credential)"]
+    end
+    subgraph Azure["☁️ Azure AI Foundry"]
+        SECRETS["/realtime/client_secrets<br/>(mints 1-minute guest passes)"]
+        CALLS["/realtime/calls<br/>(the actual voice call)"]
+        MODEL["gpt-realtime-2.1"]
+        SECRETS --- MODEL
+        CALLS --- MODEL
+    end
+    BROWSER -- "1. give me a pass" --> SERVER
+    SERVER -- "2. real token" --> SECRETS
+    SECRETS -- "3. guest pass (ek_...)" --> SERVER
+    SERVER -- "4. guest pass" --> BROWSER
+    BROWSER == "5. live audio call (WebRTC)" ==> CALLS
+```
+
+## WHY it's built this way — first principles
+
+**Why a "realtime" model at all?** The classic way to voice-enable an AI is a relay race: record your voice → transcribe to text (STT) → LLM thinks in text → convert reply to speech (TTS). Every baton pass adds delay and loses information (tone, hesitation, emotion). A realtime model is **one model that hears audio and speaks audio directly** — like a phone call instead of mailing letters back and forth. That's what makes sub-second, interruptible conversation possible.
+
+**Why WebRTC for the browser (and not WebSocket)?** ELI5: a WebSocket is a walkie-talkie — you push chunks of data and hope the timing works out; *you* are responsible for capturing mic audio, encoding it, buffering playback. WebRTC is a phone line — the browser natively handles the microphone, echo cancellation, network jitter, and speaker playback. Microsoft's guidance: WebRTC for anything client-side (~50–100ms latency), WebSocket for server-to-server (~100–300ms). We use both: WebSocket for the scripted smoke test, WebRTC for the live page.
+
+**Why a local token server?** Your Azure credential can do *anything* your account can do. You must never ship it to a browser. So a tiny local server trades your real credential for an **ephemeral key** — ELI5: a *1-minute guest pass*. The browser gets only the guest pass; even the session rules (which model, which voice, the system prompt) are baked in server-side when the pass is minted, so the browser can't tamper with them. This is the pattern Microsoft documents for production.
+
+**Why keyless (Entra ID) instead of API keys?** No key to leak, rotate, or commit by accident. Your `az login` identity + an RBAC role is the whole story. (Standard: OAuth 2.0 / OIDC everywhere.)
+
+## HOW — step by step from zero
+
+### Step 0 — Prerequisites
+
+- An Azure subscription
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) installed and `az login` done
+- [Node.js](https://nodejs.org) 22+ (`node -v`)
+- A machine with a **microphone** for Part 2 (sounds obvious — cost us an hour; a Mac mini has none)
+
+### Step 1 — Create the Foundry resource and deploy the model
+
+Follow: [Create a Microsoft Foundry resource](https://learn.microsoft.com/azure/ai-services/multi-service-resource?pivots=azportal) → then [deploy the realtime model](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-websockets#deploy-a-model-for-real-time-audio):
+
+1. Go to the [Foundry portal](https://ai.azure.com), create/select a project
+2. **Models + endpoints** → **+ Deploy model** → **Deploy base model**
+3. Search `gpt-realtime` (or `gpt-realtime-mini` for cheaper testing) → **Deploy**
+4. ⚠️ Region matters for WebRTC: use **East US 2** or **Sweden Central**
+
+Verify from the CLI:
+
+```bash
+az cognitiveservices account deployment list \
+  -g <your-resource-group> -n <your-resource-name> \
+  --query "[].{deployment:name, model:properties.model.name, state:properties.provisioningState}" -o table
+```
+
+### Step 2 — Give yourself data-plane access (RBAC)
+
+Portal → your resource → **Access control (IAM)** → **Add role assignment** → **Cognitive Services OpenAI User** → your account. ([Troubleshooting reference](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-webrtc#troubleshooting) — a 401 here usually means this role is missing.)
+
+### Step 3 — Get the code
+
+```bash
+git clone https://github.com/<you>/realtime-ai-voice-07-2026.git
+cd realtime-ai-voice-07-2026
+npm install        # installs: openai, ws, @azure/identity
+```
+
+What each file is and why it exists:
+
+| File | What | Why |
+|---|---|---|
+| `voice-test.js` | Text in → spoken `.wav` out over WebSocket | Prove the deployment works before adding browser complexity |
+| `talk-server.js` | Serves the page + mints ephemeral keys | Keeps your real credential out of the browser (see WHY above) |
+| `talk.html` | The voice UI: mic capture, WebRTC call, live transcript, voice picker | The actual "talk to it" experience |
+| `index.js` | Microsoft's original [WebSocket quickstart](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-websockets#voice-agent-quickstart) sample | Untouched reference |
+| `src/core/logger.js` | One structured logger every script imports | Standard: console locally, flips to Azure Monitor via one env var |
+
+### Step 4 — Smoke test (hear it speak)
+
+```bash
+AZURE_TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv) \
+AZURE_OPENAI_ENDPOINT=https://<your-resource-name>.services.ai.azure.com \
+AZURE_OPENAI_DEPLOYMENT_NAME=<your-deployment-name> \
+node voice-test.js
+```
+
+> 💡 If your resource is in a **different subscription/tenant** than your az default, add `--subscription <sub-id>` to the token command. This exact issue cost us the most debugging time — see [Appendix A](#appendix-a--the-mistakes-we-actually-hit).
+
+Success looks like: a JSON log line with the transcript, and `output.wav` you can play (`afplay output.wav` on macOS). Under the hood this connects to `wss://<resource>/openai/v1/realtime?model=<deployment>` — the **GA** endpoint style: everything lives under `/openai/v1/`, **no `api-version` parameter** ([migration guide](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-preview-api-migration-guide)).
+
+### Step 5 — Live conversation
+
+```bash
+AZURE_TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv) \
+AZURE_OPENAI_ENDPOINT=https://<your-resource-name>.openai.azure.com \
+AZURE_OPENAI_DEPLOYMENT_NAME=<your-deployment-name> \
+node talk-server.js
+```
+
+Open **http://localhost:8787** → pick a voice → **Start** → allow the mic → talk.
+
+What happens when you click Start (from the [WebRTC how-to](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-webrtc)):
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as talk-server.js
+    participant A as Azure /client_secrets
+    participant C as Azure /realtime/calls
+    B->>S: POST /token {voice: "cedar"}
+    S->>A: POST session config + real Entra token
+    A-->>S: ephemeral key (ek_..., valid ~1 min)
+    S-->>B: ephemeral key only
+    B->>B: getUserMedia (mic permission)
+    B->>C: SDP offer + ephemeral key
+    C-->>B: SDP answer → direct audio line opens ☎️
+    Note over B,C: You speak ⇄ it speaks (media track)<br/>events stream on "oai-events" data channel
+```
+
+And during conversation, each turn works like this:
+
+```mermaid
+flowchart LR
+    A["You talk"] --> B["Server VAD detects<br/>you stopped<br/>(the 'polite pause' detector)"]
+    B --> C["Model thinks & speaks"]
+    C --> D["Transcript streams<br/>(faster than the audio!)"]
+    C --> E["You interrupt?"]
+    E -- "yes" --> F["Audio cut instantly +<br/>model's memory truncated<br/>to what you actually heard"]
+    F --> A
+    D --> A
+```
+
+### Step 6 — Tune it
+
+All knobs live in the session config inside `talk-server.js` ([events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)):
+
+| Knob | Values | What it does |
+|---|---|---|
+| `voice` | `marin`, `cedar` (newest/most natural), `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` | The voice. **Locks after the first spoken word** of a session — that's why the page's dropdown disables while live |
+| `interrupt_response` | `true` / `false` | `true` = your speech cuts it off (ChatGPT-style). `false` = it always finishes its sentence |
+| `silence_duration_ms` | e.g. `500` | How long a pause means "your turn is over" |
+| `speed` | `0.25`–`1.5` | Talking speed |
+| `instructions` | text | The system prompt |
+
+---
+
+## Troubleshooting (every one of these actually happened)
+
+| Symptom | Real cause | Fix |
+|---|---|---|
+| WebSocket fails with opaque `400` | Token minted for the **wrong tenant** (multi-tenant account) | `az account get-access-token --subscription <sub-that-owns-the-resource> ...` |
+| `AADSTS700016` when setting `AZURE_TENant_ID` | Your default az login doesn't exist in that tenant | Same fix — select by `--subscription`, not `--tenant` |
+| curl test of the WS endpoint returns `404` | curl used HTTP/2, which silently drops the `Upgrade` | Add `--http1.1` |
+| `NotFoundError: The object can not be found here` | **The machine has no microphone** | Plug in AirPods/headset; it's hardware, not code |
+| Page works locally, mic dead from another computer | `getUserMedia` needs a secure context (`https://` or `localhost`) | SSH tunnel: `ssh -L 8787:localhost:8787 user@host`, then open `localhost:8787` there |
+| It stops talking but text keeps printing | By design — text streams faster than speech; on interrupt the *audio* is cut and the model's memory truncated to what you heard | Cosmetic: freeze the transcript on `output_audio_buffer.cleared` (this repo does) |
+| `/token` starts failing after ~1 hour | Entra token expired | Restart the server with a fresh `AZURE_TOKEN` |
+| `401` on `/client_secrets` | Missing RBAC role | Step 2 |
+| `403` on WebRTC | Resource not in East US 2 / Sweden Central | Redeploy in a supported region |
+
+## ELI5 glossary
+
+- **Realtime model** — an AI that hears sound and speaks sound directly, like a phone call (no typing middleman)
+- **VAD (voice activity detection)** — the "polite pause" detector: notices when you stop talking so the model knows it's its turn
+- **Barge-in** — interrupting it mid-sentence and having it actually stop (like a real conversation)
+- **Ephemeral key** — a 1-minute guest pass, so your house keys (real credential) never leave the server
+- **SDP exchange** — the browser and Azure swap "here's how to call me" notes, then open a direct line
+- **PCM 24kHz/16-bit/mono** — raw uncompressed audio: 24,000 measurements of the sound wave per second
+
+## Sources (all first-party)
+
+- [Realtime API via WebSockets — GA quickstart](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-websockets)
+- [Realtime API via WebRTC — GA how-to](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-webrtc)
+- [Realtime audio events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)
+- [Preview → GA migration guide](https://learn.microsoft.com/azure/foundry/openai/how-to/realtime-audio-preview-api-migration-guide)
+- [Supported voices](https://learn.microsoft.com/azure/foundry/openai/audio-completions-quickstart#input-requirements) (marin & cedar are the newest generation)
+- OpenAI [Realtime conversations guide](https://developers.openai.com/docs/guides/realtime-conversations) — interruption/truncation semantics
+
+---
+
+## Appendix A — the mistakes we actually hit
+
+Kept because the debugging *is* the lesson:
+
+1. **The tenant trap.** Our az CLI default account was a service principal in tenant A; the Foundry resource lived in tenant B where only a cached user login worked. `DefaultAzureCredential` happily minted a wrong-tenant token → opaque 400 on the WS handshake (not even a 401). Forcing `AZURE_TENANT_ID` made it *worse* (`AADSTS700016`). Diagnosis that cracked it: **decode the JWT** (`tid`, `upn`, `idtyp` claims) and look at who the token is actually for. Fix: mint with `--subscription`, pass it in as `AZURE_TOKEN`.
+2. **curl "404" that wasn't.** Probing the WS endpoint with curl returned 404 — because HTTP/2 doesn't do WebSocket upgrades. `--http1.1` → `101 Switching Protocols`. Trust protocol details before error codes.
+3. **The missing microphone.** `NotFoundError` from `getUserMedia` looked like a permissions bug. It was a Mac mini. It has no mic. Check hardware first (`system_profiler SPAudioDataType`).
+4. **"It stops talking but the text keeps going."** Not a bug — transcript deltas stream at generation speed, faster than audio plays. On barge-in, Azure cuts the audio and truncates the model's context to what you actually heard; the extra text on screen was already delivered. UI fix: freeze the line on `output_audio_buffer.cleared`.
+5. **Interruption is a product decision, not a constant.** `interrupt_response: true/false` flips between "stops when you speak" and "always finishes its thought." We flipped it both ways before landing on `true`. Decide what *your* app should do on purpose.
