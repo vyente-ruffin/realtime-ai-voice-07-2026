@@ -124,9 +124,16 @@ async function getBrain() {
   if (brain) return brain;
   if (brainStarting) return brainStarting;
   brainStarting = (async () => {
-    const client = new AcpClient({ cwd: here });
+    const client = new AcpClient({
+      cwd: here,
+      onAnnouncement: (text) => announce(text),
+    });
     await client.start();
     const sessionId = await client.newSession();
+    // Delegation contract, sent once per ACP session.
+    client.prompt(DELEGATION_PREAMBLE).catch((err) =>
+      logger.warn("Delegation preamble failed", { error: err.message })
+    );
     appendFileSync(
       join(logsDir, "acp-session.json"),
       JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() }) + "\n"
@@ -178,6 +185,7 @@ function sendFiller() {
 let turnEpoch = 0;
 
 export function bargeIn() {
+  setUserSpeaking(true);
   // The epoch always advances so a late reply is dropped; the protocol cancel
   // only goes out when hermes actually has work in flight [A8].
   turnEpoch += 1;
@@ -198,6 +206,51 @@ function mockDelayFor(transcript) {
   const m = /MOCK_DELAY_(\d+)/.exec(transcript);
   return m ? Number(m[1]) : 800;
 }
+
+// Announcements: completions hermes pushes back out-of-turn [H10]. They must
+// never land on top of the user — an assistant that interrupts you to report a
+// finished task is worse than one that waits.
+let userSpeaking = false;
+const announceQueue = [];
+
+function logAnnouncement(event, text) {
+  appendFileSync(
+    join(logsDir, "announcements.log"),
+    JSON.stringify({ at: new Date().toISOString(), event, text: text.slice(0, 300) }) + "\n"
+  );
+}
+
+function announce(text) {
+  if (userSpeaking) {
+    announceQueue.push(text);
+    logAnnouncement("deferred", text);
+    return false;
+  }
+  sseBroadcast({ type: "speak", text: text.slice(0, 4000) });
+  logAnnouncement("announced", text);
+  return true;
+}
+
+function setUserSpeaking(speaking) {
+  userSpeaking = speaking;
+  if (!speaking) {
+    while (announceQueue.length && !userSpeaking) announce(announceQueue.shift());
+  }
+}
+
+// Preamble that makes delegation machine-checkable: hermes must emit literal
+// sentinels so gates grep rather than guess. Delegation is process-local [H9],
+// so anything that must outlive the call belongs in cron.
+const DELEGATION_PREAMBLE = [
+  "You are answering by voice. Two rules for long-running work:",
+  "1. If a task will take more than ~15 seconds, start it in the background",
+  "   (delegate_task with background execution, or a background terminal),",
+  "   then reply IMMEDIATELY with the literal token TASK-ACCEPTED <handle>,",
+  "   where <handle> is the delegation or session id. Never wait for the result.",
+  "2. When asked about a task, reply with TASK-RUNNING <handle> or",
+  "   TASK-DONE <handle> plus one short sentence. Keep replies conversational",
+  "   and brief — they are spoken aloud.",
+].join(" ");
 
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
 async function routeTurn(transcript) {
@@ -276,7 +329,7 @@ const server = createServer(async (req, res) => {
     }
 
     // Everything below is API surface: token required (security review).
-    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in") {
+    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in" || pathname === "/session-end" || pathname.startsWith("/test/")) {
       if (!authorized(req, url)) {
         problem(res, 403, "Forbidden", "Missing or invalid voice auth token.");
         return;
@@ -372,6 +425,61 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && pathname === "/test/announce") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const spoken = announce(String(body.text || "").slice(0, 4000));
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ spoken }));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/test/user-speaking") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      setUserSpeaking(body.speaking === true);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/session-end") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const pending = Array.isArray(body.pendingTasks) ? body.pendingTasks : [];
+      appendFileSync(
+        join(logsDir, "handoff.log"),
+        JSON.stringify({ at: new Date().toISOString(), event: "handoff-prompt", pending }) + "\n"
+      );
+      try {
+        const client = await getBrain();
+        // Delivery goes through hermes' own platform machinery [LIVE-11]; the
+        // voice layer never grows delivery tentacles (north-star rule 1).
+        const reply = await client.prompt(
+          `The voice session is ending. Pending tasks: ${pending.join(", ") || "none"}. ` +
+          "When they finish, deliver the results to me via Telegram using your own " +
+          "messaging tools. Reply with the literal token HANDOFF-SCHEDULED plus one short sentence."
+        );
+        const confirmed = /HANDOFF-SCHEDULED/.test(reply.text);
+        appendFileSync(
+          join(logsDir, "handoff.log"),
+          JSON.stringify({
+            at: new Date().toISOString(),
+            event: confirmed ? "handoff-confirmed" : "handoff-unconfirmed",
+            reply: reply.text.slice(0, 300),
+          }) + "\n"
+        );
+        writeFileSync(
+          join(logsDir, "handoff-evidence.json"),
+          JSON.stringify({ evidence: reply.text.slice(0, 200), at: new Date().toISOString() })
+        );
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ confirmed, reply: reply.text }));
+      } catch (err) {
+        logger.error("Handoff failed", { error: err.message });
+        res.writeHead(502, { "Content-Type": "application/problem+json" });
+        res.end(JSON.stringify({ type: "about:blank", title: "Handoff failed", status: 502, detail: err.message }));
+      }
+      return;
+    }
+
     if (req.method === "POST" && pathname === "/barge-in") {
       bargeIn();
       res.writeHead(204);
@@ -428,6 +536,10 @@ const server = createServer(async (req, res) => {
           receivedAt: Date.now(),
         }) + "\n"
       );
+
+      // Their utterance has been transcribed: they have stopped talking, so any
+      // announcement deferred mid-sentence may now be spoken.
+      setUserSpeaking(false);
 
       if (turn.route === true && turn.transcript.trim()) {
         try {
