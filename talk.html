@@ -153,6 +153,7 @@ function logMeta(text) { metaEl.textContent += text + "\n"; }
 
 let currentModelLine = null;
 let dropTranscript = false;
+const pendingYouLines = {};
 
 function markInterrupted() {
   if (currentModelLine) {
@@ -188,9 +189,32 @@ function handleEvent(event) {
     case "input_audio_buffer.speech_stopped":
       setStatus("🤔 Thinking…");
       break;
-    case "conversation.item.input_audio_transcription.completed":
-      if (event.transcript) addLine("you", "You: " + event.transcript.trim());
+    case "input_audio_buffer.committed":
+      // Reserve the "You:" slot NOW — transcription arrives late, often
+      // after the model has already replied.
+      if (event.item_id) {
+        pendingYouLines[event.item_id] = addLine("you", "You: 🎙️ …");
+      }
       break;
+    case "conversation.item.input_audio_transcription.completed": {
+      const line = pendingYouLines[event.item_id];
+      const text = (event.transcript || "").trim() || "(inaudible)";
+      if (line) {
+        line.textContent = "You: " + text;
+        delete pendingYouLines[event.item_id];
+      } else if (event.transcript) {
+        addLine("you", "You: " + text);
+      }
+      break;
+    }
+    case "conversation.item.input_audio_transcription.failed": {
+      const line = pendingYouLines[event.item_id];
+      if (line) {
+        line.textContent = "You: (couldn't transcribe)";
+        delete pendingYouLines[event.item_id];
+      }
+      break;
+    }
     case "response.output_audio_transcript.delta":
       if (dropTranscript) break;
       if (!currentModelLine) currentModelLine = addLine("model", "Model: ");
