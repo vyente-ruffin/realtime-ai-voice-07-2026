@@ -149,7 +149,7 @@ flowchart LR
 
 ### Step 6 — Tune it
 
-The page has a **Session settings** panel — persona presets (assistant, interviewer, Spanish tutor, storyteller) with an editable system prompt, voice, speed, patience, and noise reduction — plus a mute button and a live level-bar visualization so you can *see* it hearing you. The browser only *requests* these; `talk-server.js` validates and clamps every value before baking them into the ephemeral session ([events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)):
+The page has a **Session settings** panel — persona presets (assistant, interviewer, Spanish tutor, storyteller) with an editable system prompt, voice, speed, patience, and noise reduction — plus a mute button and a live **orb visualization**: a green core that swells when the model speaks, a blue ring that expands when it hears you, breathing when idle, gray when muted. The browser only *requests* these settings; `talk-server.js` validates and clamps every value before baking them into the ephemeral session ([events reference](https://learn.microsoft.com/azure/foundry/openai/realtime-audio-reference)):
 
 | Knob | Values | What it does |
 |---|---|---|
@@ -158,6 +158,8 @@ The page has a **Session settings** panel — persona presets (assistant, interv
 | `silence_duration_ms` | e.g. `500` | How long a pause means "your turn is over" |
 | `speed` | `0.25`–`1.5` | Talking speed |
 | `instructions` | text | The system prompt |
+| `noise_reduction` | `near_field` / `far_field` | Match your mic: headset vs room/laptop mic |
+| `transcription` | `{ model: "whisper-1" }` | Enables "You:" lines — without it, your side of the conversation is never transcribed |
 
 ---
 
@@ -171,6 +173,7 @@ The page has a **Session settings** panel — persona presets (assistant, interv
 | `NotFoundError: The object can not be found here` | **The machine has no microphone** | Plug in AirPods/headset; it's hardware, not code |
 | Page works locally, mic dead from another computer | `getUserMedia` needs a secure context (`https://` or `localhost`) | SSH tunnel: `ssh -L 8787:localhost:8787 user@host`, then open `localhost:8787` there |
 | It stops talking but text keeps printing | By design — text streams faster than speech; on interrupt the *audio* is cut and the model's memory truncated to what you heard | Cosmetic: freeze the transcript on `output_audio_buffer.cleared` (this repo does) |
+| Your "You:" line appears *after* the model's reply to it | Input transcription (whisper) is a slower parallel job — the model answers your raw audio before your words are transcribed | Reserve the line on `input_audio_buffer.committed`, fill it by `item_id` when transcription completes (this repo does) |
 | `/token` starts failing after ~1 hour | Entra token expired | Restart the server with a fresh `AZURE_TOKEN` |
 | `401` on `/client_secrets` | Missing RBAC role | Step 2 |
 | `403` on WebRTC | Resource not in East US 2 / Sweden Central | Redeploy in a supported region |
