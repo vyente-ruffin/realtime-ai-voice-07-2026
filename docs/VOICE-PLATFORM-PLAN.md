@@ -460,8 +460,18 @@ flowchart TD
 | A4 | stopReason enum incl. `end_turn`, `cancelled` | [v1 agent.rs schema](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/agent-client-protocol-schema/src/v1/agent.rs) → *StopReason* (verifier: five variants verbatim at HEAD) | "Values: EndTurn, MaxTokens, MaxTurnRequests, Refusal, Cancelled." |
 | A5 | initialize negotiates version/capabilities/auth | [initialization.mdx (v2 draft)](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v2/draft/initialization.mdx) | "Initiates the connection by negotiating protocol versions, capabilities, and authentication methods." |
 | A6 | `session/update` streams message chunks, tool calls, plans | [schema.mdx](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v2/schema.mdx) → *session/update* | "receives updates about session activity, including message updates, message chunks, tool calls, and execution plans." |
+| A7 | stdio transport = newline-delimited JSON-RPC; stdout is messages-only, stderr for logs *(added during M0 build per builder rule #7)* | [transports.mdx (v2)](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v2/transports.mdx) → *Transports > stdio* | "Messages are newline-delimited and must not contain embedded newlines. Agents can use stderr for logging, but must not write non-message data to stdout." |
 
 *Verifier caveats carried forward:* single-vs-multi-client per `hermes acp` process is undocumented (we spawn one child per session); hermes' implemented ACP version is unconfirmed — A2/A3/A5 cite v2-draft pages, A1/A4 stable v1; **v2 moved stop reasons out of the prompt response**, so M0.T2 records the negotiated version (test #4) and the M0 PR must reconcile the A-rows (test #5). The exact "additional support dependencies" [H4] are unnamed in docs (M0.T2#1 covers reality). Several H/A quotes have drifted at GitHub HEAD while remaining verbatim in Context7's index — Context7 is the declared source (builder instruction #4).
+
+### Context7 MCP → Playwright (`/microsoft/playwright`) — synthetic voice rig (added during M0 per builder rule #7)
+
+| ID | Fact | Where | Quote |
+|---|---|---|---|
+| P1 | Custom Chromium CLI args can be passed at launch (`launchOptions.args`) — the carrier for fake-media flags | [test-api/class-testoptions.md](https://github.com/microsoft/playwright/blob/main/docs/src/test-api/class-testoptions.md) → *Configure Browser Launch Options* | "Pass custom CLI arguments to the browser instance. Use custom args at your own risk as they may break Playwright functionality." |
+| P2 | Microphone permission can be granted to a context | [api/class-browsercontext.md](https://github.com/microsoft/playwright/blob/main/docs/src/api/class-browsercontext.md) → *Grant Permissions* | "Supported permissions include features like geolocation, camera, microphone, notifications, and clipboard access." |
+
+*Note:* the specific Chromium switches (`--use-fake-device-for-media-stream`, `--use-file-for-fake-audio-capture`) are Chromium flags not documented by Playwright — they enter the index as **LIVE-12** the moment the M1 rig's own gate proves them (synthesized WAV in → `input_audio_transcription.completed` with matching words out). Until that gate passes, no M1 test may rely on them.
 
 ### Live-verified on this machine (not doc-citable — the command IS the citation)
 
