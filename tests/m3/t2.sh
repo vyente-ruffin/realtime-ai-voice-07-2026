@@ -41,7 +41,10 @@ fi
 # 3. The interrupting utterance becomes the next prompt to hermes
 : > "$HERE/logs/turns-routed.log"
 bash "$RIG/make-wav.sh" /tmp/m3t2b.wav "What is the capital of Japan?" >/dev/null
-node "$RIG/driver.mjs" --wav /tmp/m3t2b.wav --puppet 1 --watch 60 --out /tmp/m3t2b.json >/dev/null 2>&1
+# 120s: t2.2 cancels the session immediately before this, and a brain respawn
+# legitimately costs up to 60s of ACP init on top of hermes' 8-30s reply.
+# Headroom for a measured cost — the assertion is unchanged.
+node "$RIG/driver.mjs" --wav /tmp/m3t2b.wav --puppet 1 --watch 120 --out /tmp/m3t2b.json >/dev/null 2>&1
 if grep -qi "capital of japan" "$HERE/logs/turns-routed.log" 2>/dev/null; then
   ok 3 "interrupting utterance routed to hermes as the next prompt"
 else
