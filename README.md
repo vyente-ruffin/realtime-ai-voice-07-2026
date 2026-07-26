@@ -2,6 +2,33 @@
 
 Build a browser page where you **talk to an AI with your voice and it talks back** — with real interruption ("barge-in"), selectable voices, and no API keys ever touching the browser. Built July 2026 against `gpt-realtime-2.1`, tested end-to-end, including every mistake we hit along the way (documented in [Appendix A](#appendix-a--the-mistakes-we-actually-hit)).
 
+> ### 🧠 This repo grew a brain
+>
+> The tutorial below builds the **voice harness** — the mouth and ears. On top of it,
+> this repo now also contains the **Hermes Voice Platform**: the same realtime model
+> demoted to *pure speech I/O*, with every spoken word originating from a local
+> [Hermes agent](https://github.com/NousResearch/hermes-agent) — its memory, its
+> Honcho user model, its skills and tools. Voice becomes another front-end alongside
+> Telegram and the CLI, and the existing hermes install is provably untouched
+> (checksum-gated on every test run).
+>
+> **What it does:** you talk, hermes answers in its own voice; ask it to start a long
+> job and it acknowledges immediately, keeps chatting, then announces completion
+> without ever talking over you; interrupt it and it cancels the work in flight;
+> hang up and pending results arrive on Telegram.
+>
+> - 📋 **[The build plan](docs/VOICE-PLATFORM-PLAN.md)** — north star, 6 milestones,
+>   63 binary gates, and a citation index where every API claim is traceable to
+>   Microsoft Learn or the OpenAI/ACP/hermes docs.
+> - 🏗 **Status:** M0–M4 built and gated (63/63, tags `v0.0.1`–`v0.4.0`). M5 (making
+>   voice a first-class `hermes gateway` platform) awaits the owner's approval.
+> - 🧾 **[ADR-001](docs/ADR-001-observer.md)** — why `webrtcfilter=on` was rejected
+>   despite two of its own tests passing.
+> - 🤖 **[CLAUDE.md](CLAUDE.md)** — machine handoff: state, gotchas, how to re-certify.
+>
+> **Run it:** `node talk-server.js` with the env below, wait for `"Brain warm"` in the
+> log (~30s — hermes loads 175 MCP tools), then open http://localhost:8787.
+
 ---
 
 ## WHAT you're building
