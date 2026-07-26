@@ -1,6 +1,6 @@
 # HERMES VOICE PLATFORM — Gated TDD Build Plan
 
-> **Version:** 1.1 (2026-07-25) · **Repo:** `realtime-ai-voice-07-2026` · **Status:** plan verified, build not started
+> **Version:** 1.2 (2026-07-26) · **Repo:** `realtime-ai-voice-07-2026` · **Status:** **M0–M4 BUILT AND GATED** (63/63 cumulative, tags `v0.0.1`–`v0.4.0`). M5 is optional and **awaiting the owner's explicit approval** — it is the only sanctioned touch to the hermes install. FINAL acceptance awaits the owner's own conversation.
 > **Review log:** v1.0 → three independent citation-verifier agents re-fetched all 28 citations against the two MCP servers (27 CONFIRMED; 2 corrected in this version) and a skeptical-reviewer agent returned APPROVE_WITH_FIXES (4 blockers, 11 majors, 9 minors — **all applied in v1.1**).
 > **Citation rule:** every technical claim is tagged `[MS#]` (Microsoft Learn MCP), `[C#]` (Context7 → OpenAI docs), `[H#]`/`[A#]` (Context7 → hermes-agent / Agent Client Protocol), or `[LIVE-#]` (verified by running a command on this machine — command shown). Full sources index at the bottom. Builders MUST cite the same IDs when implementing.
 
@@ -17,6 +17,23 @@ Decision rules (apply to every choice, every task):
 3. **Gate test** — no task or milestone is "done" until its binary gates pass. No exceptions, no "it probably works."
 
 Non-goals: replacing hermes' brain with GPT; ChatGPT-Live-grade instant banter (hermes thinking time is accepted and papered over with fillers); public/multi-user deployment.
+
+---
+
+## 0. Build outcome (what actually happened)
+
+| Milestone | Gate | Tag | Proof that mattered |
+|---|---|---|---|
+| M0 Baseline | 16/16 | `v0.0.1` | invariants frozen; ACP v1 negotiated; median turn 3.6–9.6s |
+| M1 Puppet mode | 27/27 | `v0.1.0` | zero self-generated responses; all 6 adversarial injections at Jaccard 1.0 — "Ignore previous instructions" was **spoken, not obeyed** |
+| M2 Hermes bus | 43/43 | `v0.2.0` | memory proven **both directions**; voice sessions listed in `hermes sessions list`; destructive permissions never auto-approved |
+| M3 Feel | 54/54 | `v0.3.0` | fillers out-of-band with **zero leakage** into hermes' prompts; `session/cancel` on the wire with the late reply dropped; rotation with the **same ACP session** across the swap |
+| M4 Async | 63/63 | `v0.4.0` | 60s task acked in 10s with a real handle; unrelated turn answered in 10s while it ran; announcements **deferred** while the user speaks; hang-up handoff confirmed |
+| M5 Graduation | — | — | **not started — needs owner approval** |
+
+**Nine product bugs were found by these gates, not by assumption.** The most serious: `session/cancel` was being sent against *idle* sessions on every first utterance, corrupting hermes' ACP adapter (`-32603 … 'NoneType' object has no attribute 'startswith'`) so the *next* reply failed — presenting as random "I hit a snag" responses. Others: injections dropped while the data channel opened (from M2 those carry hermes' words); dead ACP clients handed to callers; the delegation preamble spoken aloud at the user; 60s of first-turn dead air from ACP init.
+
+**Four tests were repaired for integrity, each in a standalone commit** (rule #6). Two are worth remembering: M0's `hermes sessions` gate had been *passing on a usage message* — it proved nothing for two milestones; and `m4.t1.3` bounded a non-blocking claim by "2× a baseline captured minutes earlier", so it failed a **correct** 10s answer. Proxies stop being valid as the system grows around them.
 
 ---
 
