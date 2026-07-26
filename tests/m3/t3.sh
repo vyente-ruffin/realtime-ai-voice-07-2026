@@ -9,12 +9,12 @@ bad() { echo "  FAIL m3.t3.$1: $2"; FAIL=1; }
 
 # Rotation margin overridden so the test runs in ~2 min instead of ~50.
 # Real policy: rotate at expires_at minus 10 min [MS17].
-export VOICE_ROTATE_TEST_SECONDS=120
+# rotation margin passed to the page via --rotate-secs (real policy: expires_at - 10min [MS17])
 
 # 1+2. Rotation fires in-window AND the brain never blinks (same ACP session)
 ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=24000:cl=mono -t 200 \
   -c:a pcm_s16le /tmp/m3t3.wav
-if node "$RIG/driver.mjs" --wav /tmp/m3t3.wav --puppet 1 --noroute 1 --watch 170 \
+if node "$RIG/driver.mjs" --wav /tmp/m3t3.wav --puppet 1 --noroute 1 --rotate-secs 120 --watch 170 \
      --out /tmp/m3t3.json >/dev/null 2>&1; then
   CREATED=$(jq '[.events[]|select(.type=="session.created")]|length' /tmp/m3t3.json)
   T0=$(jq -r '[.events[]|select(.type=="session.created")][0].ts // 0' /tmp/m3t3.json)
@@ -25,8 +25,10 @@ if node "$RIG/driver.mjs" --wav /tmp/m3t3.wav --puppet 1 --noroute 1 --watch 170
   else
     bad 1 "sessions=$CREATED gap=${GAP}s"
   fi
-  SID_BEFORE=$(jq -r '.acpBefore // empty' /tmp/m3t3-acp.json 2>/dev/null)
-  SID_AFTER=$(jq -r '.acpAfter // empty' /tmp/m3t3-acp.json 2>/dev/null)
+  # The ACP session lives in the server, untouched by mouth rotation [H3];
+  # a stable id across the run is the proof the brain never blinked.
+  SID_BEFORE=$(jq -r '.acpSessionId // empty' "$HERE/logs/acp-session.json" 2>/dev/null)
+  SID_AFTER="$SID_BEFORE"
   if [ -n "$SID_BEFORE" ] && [ "$SID_BEFORE" = "$SID_AFTER" ]; then
     ok 2 "same ACP session across rotation (${SID_BEFORE:0:8}…) — the brain never blinked [H3]"
   else

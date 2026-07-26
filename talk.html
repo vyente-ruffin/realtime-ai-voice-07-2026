@@ -353,6 +353,7 @@ const pendingYouLines = {};
 
 function markInterrupted() {
   if (currentModelLine) {
+    window.__voiceLabEvents.push({ ts: Date.now(), type: "ui.interrupted" });
     currentModelLine.textContent += " ⏹ (interrupted — the model's memory is cut here too)";
     currentModelLine = null;
     dropTranscript = true;
@@ -373,15 +374,19 @@ function handleEvent(event) {
   switch (event.type) {
     case "session.created":
       setStatus("🟢 Connected — start talking");
+      scheduleRotation(event.session);
       break;
     case "input_audio_buffer.speech_started":
       setStatus("🎤 Listening…");
+      fetch("/barge-in", { method: "POST", headers: authHeaders })
+        .catch(() => { /* server down; page keeps working */ });
       break;
     case "output_audio_buffer.cleared":
       markInterrupted();
       break;
     case "response.created":
       dropTranscript = false;
+      speaking = true;
       break;
     case "input_audio_buffer.speech_stopped":
       setStatus("🤔 Thinking…");
@@ -434,7 +439,9 @@ function handleEvent(event) {
       currentModelLine = null;
       break;
     case "response.done":
+      speaking = false;
       setStatus(muted ? "🔇 Muted" : "🟢 Your turn — keep talking or press End");
+      if (rotationPending) requestRotation();
       break;
     case "error":
       logMeta("Error event: " + JSON.stringify(event));
@@ -511,6 +518,44 @@ function drawViz() {
   vctx.textAlign = "start";
 
   requestAnimationFrame(drawViz);
+}
+
+// Session rotation [MS14][MS17]: sessions expire at 60 minutes. Microsoft's
+// documented pattern is to watch session.created's expires_at and renew before
+// it — not to guess with a fixed clock. The ACP session is untouched, so
+// hermes never notices the mouth was swapped [H3].
+let rotationTimer = null;
+let speaking = false;
+let rotationPending = false;
+
+function scheduleRotation(session) {
+  clearTimeout(rotationTimer);
+  const testSecs = Number(new URLSearchParams(location.search).get("rotate_secs") || 0);
+  let ms;
+  if (testSecs > 0) {
+    ms = testSecs * 1000;
+  } else if (session?.expires_at) {
+    const marginMs = 10 * 60 * 1000; // renew 10 minutes early [MS17]
+    ms = Math.max(30_000, session.expires_at * 1000 - Date.now() - marginMs);
+  } else {
+    return; // no expiry advertised: nothing to schedule
+  }
+  logMeta(`Rotation scheduled in ${Math.round(ms / 1000)}s`);
+  rotationTimer = setTimeout(() => requestRotation(), ms);
+}
+
+function requestRotation() {
+  if (speaking) {
+    // Never cut the mouth mid-sentence; retry at the next response.done.
+    rotationPending = true;
+    window.__voiceLabEvents.push({ ts: Date.now(), type: "rotation.deferred" });
+    return;
+  }
+  rotationPending = false;
+  window.__voiceLabEvents.push({ ts: Date.now(), type: "rotation.start" });
+  const wasMuted = muted;
+  stop({ keepBrain: true });
+  start().then(() => { if (wasMuted) setMuted(true); });
 }
 
 // Faint idle orb so the stage is never an empty box
@@ -634,6 +679,21 @@ async function start() {
         ts: Date.now(), type: "sse.message", text: msg.text ?? null,
         dcState: dataChannel ? dataChannel.readyState : "null",
       });
+      if (msg.type === "filler") {
+        if (!dataChannel || dataChannel.readyState !== "open") return;
+        window.__voiceLabEvents.push({ ts: Date.now(), type: "filler.sent", text: msg.text });
+        dataChannel.send(JSON.stringify({
+          type: "response.create",
+          response: {
+            conversation: "none",           // never joins the conversation [C1]
+            metadata: { purpose: "filler" }, // identifiable in server events [C7]
+            instructions:
+              "Say exactly this, warmly and briefly, then stop: «" +
+              msg.text.replace(/[«»]/g, "") + "»",
+          },
+        }));
+        return;
+      }
       if (msg.type !== "speak") return;
       speak(msg.text);
     };
@@ -668,7 +728,7 @@ async function start() {
   }
 }
 
-function stop() {
+function stop(opts = {}) {
   vizRunning = false;
   if (speakSource) { speakSource.close(); speakSource = null; }
   if (dataChannel) { dataChannel.close(); dataChannel = null; }

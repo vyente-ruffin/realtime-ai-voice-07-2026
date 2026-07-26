@@ -139,12 +139,92 @@ async function getBrain() {
   return brainStarting;
 }
 
+// Fillers: spoken while hermes thinks. Out-of-band so they never enter the
+// conversation state and never reach hermes' prompt context [C1][C7].
+const FILLERS = [
+  "One sec, checking on that.",
+  "Let me think about that for a moment.",
+  "Still with you — working on it.",
+  "Hang on, pulling that together.",
+  "Give me a beat on this one.",
+];
+const FILLER_AFTER_MS = 1500;
+let lastFillerIndex = -1;
+
+function nextFiller() {
+  let i;
+  do { i = Math.floor(Math.random() * FILLERS.length); }
+  while (i === lastFillerIndex && FILLERS.length > 1);
+  lastFillerIndex = i;
+  return FILLERS[i];
+}
+
+function sendFiller() {
+  const text = nextFiller();
+  sseBroadcast({ type: "filler", text });
+  appendFileSync(
+    join(logsDir, "fillers.log"),
+    JSON.stringify({ at: new Date().toISOString(), text, conversation: "none", purpose: "filler" }) + "\n"
+  );
+  return text;
+}
+
+// Barge-in state: set when the user interrupts, so a late hermes reply is
+// dropped instead of spoken at a moment the user has already moved past [A8].
+let turnEpoch = 0;
+
+export function bargeIn() {
+  turnEpoch += 1;
+  if (brain) brain.cancel();
+  appendFileSync(
+    join(logsDir, "cancel.log"),
+    JSON.stringify({ at: new Date().toISOString(), event: "session/cancel", epoch: turnEpoch }) + "\n"
+  );
+}
+
+// Mock brain for timing gates: real hermes latency varies 4-30s, which cannot
+// prove a 1.5s filler threshold. Enabled only via VOICE_MOCK_BRAIN=1.
+function mockDelayFor(transcript) {
+  const m = /MOCK_DELAY_(\d+)/.exec(transcript);
+  return m ? Number(m[1]) : 800;
+}
+
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
 async function routeTurn(transcript) {
-  const client = await getBrain();
   const started = Date.now();
-  const reply = await client.prompt(transcript);
+  const myEpoch = turnEpoch;
+  let fillerAfterMs = null;
+  const fillerTimer = setTimeout(() => {
+    if (turnEpoch !== myEpoch) return; // user already barged in
+    fillerAfterMs = Date.now() - started;
+    sendFiller();
+  }, FILLER_AFTER_MS);
+
+  let reply;
+  try {
+    if (process.env.VOICE_MOCK_BRAIN === "1") {
+      const delay = mockDelayFor(transcript);
+      await new Promise((r) => setTimeout(r, delay));
+      reply = { text: `MOCK REPLY after ${delay}ms`, stopReason: "end_turn", ms: delay };
+    } else {
+      const client = await getBrain();
+      reply = await client.prompt(transcript);
+    }
+  } finally {
+    clearTimeout(fillerTimer);
+  }
   const turn_ms = Date.now() - started;
+
+  // A reply that lands after the user interrupted answers a question they have
+  // already moved past — drop it rather than speak it [A8].
+  if (turnEpoch !== myEpoch) {
+    appendFileSync(
+      join(logsDir, "cancel.log"),
+      JSON.stringify({ at: new Date().toISOString(), event: "reply-dropped", turn_ms }) + "\n"
+    );
+    logger.info("Late reply dropped after barge-in", { turn_ms });
+    return { spoken: null, dropped: true, turn_ms, fillerFired: fillerAfterMs !== null, fillerAfterMs };
+  }
   appendFileSync(
     join(logsDir, "turns-routed.log"),
     JSON.stringify({
@@ -158,7 +238,10 @@ async function routeTurn(transcript) {
   logger.info("Turn routed", { turn_ms, stopReason: reply.stopReason, chars: reply.text.length });
   if (!reply.text) throw new Error(`hermes returned no text (stopReason=${reply.stopReason})`);
   sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
-  return { spoken: reply.text, turn_ms, stopReason: reply.stopReason };
+  return {
+    spoken: reply.text, turn_ms, stopReason: reply.stopReason,
+    fillerFired: fillerAfterMs !== null, fillerAfterMs,
+  };
 }
 
 function problem(res, status, title, detail) {
@@ -181,7 +264,7 @@ const server = createServer(async (req, res) => {
     }
 
     // Everything below is API surface: token required (security review).
-    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events") {
+    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in") {
       if (!authorized(req, url)) {
         problem(res, 403, "Forbidden", "Missing or invalid voice auth token.");
         return;
@@ -274,6 +357,13 @@ const server = createServer(async (req, res) => {
           expiresAt: data.expires_at,
         })
       );
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/barge-in") {
+      bargeIn();
+      res.writeHead(204);
+      res.end();
       return;
     }
 
