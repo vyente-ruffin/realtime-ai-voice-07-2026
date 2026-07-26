@@ -6,7 +6,7 @@
 // https://ai.azure.com), otherwise falls back to DefaultAzureCredential.
 
 import { createServer } from "node:http";
-import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -15,6 +15,7 @@ import {
   getBearerTokenProvider,
 } from "@azure/identity";
 import { getLogger } from "./src/core/logger.js";
+import { AcpClient } from "./src/acp-client.js";
 
 const logger = await getLogger("talk-server");
 
@@ -111,6 +112,55 @@ async function getEntraToken() {
   return provider();
 }
 
+// ---- The brain: one hermes ACP session for the life of this server ----
+let brain = null;
+let brainStarting = null;
+
+async function getBrain() {
+  if (brain) return brain;
+  if (brainStarting) return brainStarting;
+  brainStarting = (async () => {
+    const client = new AcpClient({ cwd: here });
+    await client.start();
+    const sessionId = await client.newSession();
+    appendFileSync(
+      join(logsDir, "acp-session.json"),
+      JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() }) + "\n"
+    );
+    // Single-line snapshot the gates read [H3]
+    writeFileSync(
+      join(logsDir, "acp-session.json"),
+      JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() })
+    );
+    brain = client;
+    brainStarting = null;
+    return client;
+  })();
+  return brainStarting;
+}
+
+// Ears -> brain -> mouth. Returns the spoken text, or throws.
+async function routeTurn(transcript) {
+  const client = await getBrain();
+  const started = Date.now();
+  const reply = await client.prompt(transcript);
+  const turn_ms = Date.now() - started;
+  appendFileSync(
+    join(logsDir, "turns-routed.log"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      transcript: transcript.slice(0, 500),
+      stopReason: reply.stopReason,
+      turn_ms,
+      chars: reply.text.length,
+    }) + "\n"
+  );
+  logger.info("Turn routed", { turn_ms, stopReason: reply.stopReason, chars: reply.text.length });
+  if (!reply.text) throw new Error(`hermes returned no text (stopReason=${reply.stopReason})`);
+  sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
+  return { spoken: reply.text, turn_ms, stopReason: reply.stopReason };
+}
+
 function problem(res, status, title, detail) {
   res.writeHead(status, { "Content-Type": "application/problem+json" });
   res.end(
@@ -139,7 +189,18 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/token") {
-      const settings = parseSettings(await readBody(req));
+      const rawBody = await readBody(req);
+      let rawCfg;
+      try { rawCfg = JSON.parse(rawBody || "{}"); } catch { rawCfg = {}; }
+      // Classic mode retired at M2 (north-star rule 1): the model never thinks
+      // for itself again. Only puppet sessions may be minted.
+      if (rawCfg.puppet === false) {
+        problem(res, 400, "Classic mode retired",
+          "This deployment only mints puppet sessions; the model does not generate its own replies.");
+        return;
+      }
+      const settings = parseSettings(rawBody);
+      settings.puppet = true;
 
       const input = {
         transcription: { model: "whisper-1" },
@@ -265,6 +326,30 @@ const server = createServer(async (req, res) => {
           receivedAt: Date.now(),
         }) + "\n"
       );
+
+      if (turn.route === true && turn.transcript.trim()) {
+        try {
+          const result = await routeTurn(turn.transcript);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          logger.error("Turn routing failed", { error: err.message });
+          // The user is mid-conversation: say something calm rather than
+          // leaving dead air, and report RFC 9457 to the caller.
+          sseBroadcast({ type: "speak", text: "I hit a snag reaching my brain — one moment." });
+          brain = null; // force a fresh child on the next turn
+          res.writeHead(502, { "Content-Type": "application/problem+json" });
+          res.end(JSON.stringify({
+            type: "about:blank",
+            title: "Brain unavailable",
+            status: 502,
+            detail: err.message,
+            fallbackSpoken: true,
+          }));
+        }
+        return;
+      }
+
       res.writeHead(204);
       res.end();
       return;

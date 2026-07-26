@@ -26,6 +26,7 @@ const out = arg("out", "/tmp/rig-events.json");
 const puppet = arg("puppet", "1") === "1";
 const watchSecs = Number(arg("watch", "12"));
 const speakFile = arg("speak-file", null);
+const noRoute = arg("noroute", "0") === "1";
 
 if (!wav) {
   logger.error("--wav is required");
@@ -46,7 +47,9 @@ try {
   await context.grantPermissions(["microphone"], { origin: "http://localhost:8787" });
   const page = await context.newPage();
 
-  await page.goto(`http://localhost:8787/?test=1&puppet=${puppet ? 1 : 0}`);
+  await page.goto(
+    `http://localhost:8787/?test=1&puppet=${puppet ? 1 : 0}${noRoute ? "&noroute=1" : ""}`
+  );
   await page.click("#startBtn");
 
   // Wait for connection (status set by session.created handler) or failure.
