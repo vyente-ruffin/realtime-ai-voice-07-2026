@@ -189,7 +189,10 @@ const FILLERS = [
   "Hang on, pulling that together.",
   "Give me a beat on this one.",
 ];
-const FILLER_AFTER_MS = 1500;
+// Raised from 1500ms: with the lean voice profile most replies land in ~2s,
+// so a 1.5s filler fired on nearly every turn and just delayed the answer.
+// Only cover genuinely slow turns (tool use, delegation).
+const FILLER_AFTER_MS = Number(process.env.VOICE_FILLER_MS || 4000);
 let lastFillerIndex = -1;
 
 function nextFiller() {

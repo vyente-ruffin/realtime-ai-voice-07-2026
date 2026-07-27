@@ -16,10 +16,10 @@ AUTH="$(curl -s http://localhost:8787/ | sed -n 's/.*voice-auth" content="\([^"]
 # 1. Slow reply (mock delay 4s) → filler fires between 1.5s and 3.0s
 R=$(curl -s -X POST http://localhost:8787/turn -H "X-Voice-Auth: $AUTH" \
   -H 'Content-Type: application/json' --max-time 60 \
-  -d '{"item_id":"f1","transcript":"MOCK_DELAY_4000 say something","route":true}')
+  -d '{"item_id":"f1","transcript":"MOCK_DELAY_8000 say something","route":true}')
 FT=$(echo "$R" | jq -r '.fillerAfterMs // empty')
-if [ -n "$FT" ] && [ "$FT" -ge 1500 ] && [ "$FT" -le 3000 ]; then
-  ok 1 "filler fired at ${FT}ms (window 1500-3000)"
+if [ -n "$FT" ] && [ "$FT" -ge 4000 ] && [ "$FT" -le 5500 ]; then
+  ok 1 "filler fired at ${FT}ms (window 4000-5500)"
 else
   bad 1 "fillerAfterMs=${FT:-none} outside window"
 fi
@@ -27,7 +27,7 @@ fi
 # 2. Fast reply (mock delay 500ms) → no filler at all
 R=$(curl -s -X POST http://localhost:8787/turn -H "X-Voice-Auth: $AUTH" \
   -H 'Content-Type: application/json' --max-time 60 \
-  -d '{"item_id":"f2","transcript":"MOCK_DELAY_500 say something","route":true}')
+  -d '{"item_id":"f2","transcript":"MOCK_DELAY_2000 say something","route":true}')
 if [ "$(echo "$R" | jq -r '.fillerFired')" = "false" ]; then
   ok 2 "no filler on a fast reply"
 else
