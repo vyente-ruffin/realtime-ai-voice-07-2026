@@ -10,6 +10,7 @@ import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   DefaultAzureCredential,
   getBearerTokenProvider,
@@ -102,14 +103,38 @@ function sseBroadcast(payload) {
   for (const res of sseClients) res.write(frame);
 }
 
+// Azure tokens last ~60-90 min. Minting once at startup meant the server
+// silently rotted: every session started after that hour failed with
+// "Azure returned 401". Mint on demand and cache until 5 minutes before
+// expiry instead.
+let tokenCache = { value: null, expiresAtMs: 0 };
+const AZ_SUBSCRIPTION = process.env.AZURE_SUBSCRIPTION_ID || "e1e5b742-d76b-4ce5-97d3-8d820bb33904";
+
 async function getEntraToken() {
+  const now = Date.now();
+  if (tokenCache.value && now < tokenCache.expiresAtMs - 300_000) return tokenCache.value;
+
+  // az CLI first: this account's resource lives in a non-default tenant, so
+  // DefaultAzureCredential picks the wrong identity (see CLAUDE.md gotcha #1).
+  try {
+    const out = execFileSync("az", [
+      "account", "get-access-token",
+      "--subscription", AZ_SUBSCRIPTION,
+      "--resource", "https://ai.azure.com",
+      "-o", "json",
+    ], { encoding: "utf8", timeout: 30_000 });
+    const j = JSON.parse(out);
+    const expMs = j.expires_on ? Number(j.expires_on) * 1000 : Date.parse(j.expiresOn);
+    tokenCache = { value: j.accessToken, expiresAtMs: Number.isFinite(expMs) ? expMs : now + 3_600_000 };
+    logger.info("Azure token refreshed", { expiresIn: Math.round((tokenCache.expiresAtMs - now) / 60000) + "m" });
+    return tokenCache.value;
+  } catch (err) {
+    logger.warn("az token mint failed; falling back", { error: String(err.message).slice(0, 120) });
+  }
+
   if (process.env.AZURE_TOKEN) return process.env.AZURE_TOKEN;
   const credential = new DefaultAzureCredential();
-  const provider = getBearerTokenProvider(
-    credential,
-    "https://ai.azure.com/.default"
-  );
-  return provider();
+  return getBearerTokenProvider(credential, "https://ai.azure.com/.default")();
 }
 
 // ---- The brain: one hermes ACP session for the life of this server ----
