@@ -14,6 +14,8 @@ const logger = await getLogger("acp-client");
 const INIT_TIMEOUT_MS = 60_000;
 const SESSION_TIMEOUT_MS = 120_000;
 const PROMPT_TIMEOUT_MS = 300_000;
+const DRAIN_MS = 800;   // let post-response chunks settle
+const TAIL_MS = 1_500;  // chunks this soon after a reply are its tail, not news
 
 // Tool-call kinds we consider read-class: safe to auto-approve because they
 // cannot mutate state. Everything else requires spoken confirmation [A9].
@@ -36,6 +38,7 @@ export class AcpClient {
     this.dead = false;
     this.inFlight = false;
     this.promptChain = Promise.resolve();
+    this.lastPromptEndMs = 0;
     this.announceBuffer = [];
     this.announceTimer = null;
   }
@@ -104,9 +107,12 @@ export class AcpClient {
   // arrives while one is in flight, and that string gets spoken at the user.
   prompt(text) {
     const run = () => this.#promptNow(text);
-    const next = this.promptChain.then(run, run);
-    this.promptChain = next.catch(() => {});
-    return next;
+    const result = this.promptChain.then(run, run);
+    // The next prompt waits for this one PLUS a drain window, so trailing
+    // chunks settle before a new turn starts collecting.
+    const drain = () => new Promise((r) => setTimeout(r, DRAIN_MS));
+    this.promptChain = result.then(drain, drain);
+    return result;
   }
 
   async #promptNow(text) {
@@ -123,6 +129,7 @@ export class AcpClient {
       );
     } finally {
       this.inFlight = false;
+      this.lastPromptEndMs = Date.now();
     }
     return {
       text: this.chunks.join("").trim(),
@@ -221,6 +228,9 @@ export class AcpClient {
         if (this.inFlight) {
           this.chunks.push(u.content.text);
           this.onChunk?.(u.content.text);
+        } else if (Date.now() - this.lastPromptEndMs < TAIL_MS) {
+          // Trailing fragment of the reply that just finished — not news.
+          logger.debug("Discarded post-reply tail chunk", { chars: u.content.text.length });
         } else {
           // Out-of-turn message: hermes pushes background results back as
           // ordinary messages [H10]. Buffering it with prompt chunks would
