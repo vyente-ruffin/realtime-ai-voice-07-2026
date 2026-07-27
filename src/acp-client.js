@@ -56,7 +56,12 @@ export class AcpClient {
   }
 
   async start() {
-    this.child = spawn("hermes", ["acp"], { stdio: ["pipe", "pipe", "pipe"] });
+    // -p <profile>: the voice profile carries no MCP servers and only
+    // memory/delegation/clarify toolsets, so a turn costs a fraction of the
+    // default profile's 135-165k tokens. Work is delegated to subagents that
+    // DO have tools. Honcho (the user model) is shared via workspace.
+    const profile = process.env.HERMES_VOICE_PROFILE || "voice";
+    this.child = spawn("hermes", ["-p", profile, "acp"], { stdio: ["pipe", "pipe", "pipe"] });
     this.child.stderr.on("data", (d) => {
       const line = d.toString().trim();
       if (line) logger.debug("hermes stderr", { line: line.slice(0, 200) });
