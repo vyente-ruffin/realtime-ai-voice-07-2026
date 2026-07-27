@@ -1,0 +1,10 @@
+  ✓ default (current)        — PID 64752
+  ✗ code                     — not running
+  ✗ mbfhindsight             — not running
+  ✗ mbfholo                  — not running
+  ✗ mbfhoncho                — not running
+  ✗ microsoft                — not running
+  ✗ researcher               — not running
+  ✗ voice                    — not running
+  ✗ web-search               — not running
+Gateways:
