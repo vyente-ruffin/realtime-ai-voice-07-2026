@@ -35,6 +35,7 @@ export class AcpClient {
     this.pendingPermissions = new Map();
     this.dead = false;
     this.inFlight = false;
+    this.promptChain = Promise.resolve();
     this.announceBuffer = [];
     this.announceTimer = null;
   }
@@ -94,7 +95,16 @@ export class AcpClient {
   }
 
   // Send a user turn; resolves { text, stopReason, ms }.
-  async prompt(text) {
+  // Serialized: hermes answers "Queued for the next turn" if a second prompt
+  // arrives while one is in flight, and that string gets spoken at the user.
+  prompt(text) {
+    const run = () => this.#promptNow(text);
+    const next = this.promptChain.then(run, run);
+    this.promptChain = next.catch(() => {});
+    return next;
+  }
+
+  async #promptNow(text) {
     if (!this.sessionId) throw new Error("no ACP session");
     this.chunks = [];
     const started = Date.now();

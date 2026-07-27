@@ -307,6 +307,12 @@ async function routeTurn(transcript) {
   );
   logger.info("Turn routed", { turn_ms, stopReason: reply.stopReason, chars: reply.text.length });
   if (!reply.text) throw new Error(`hermes returned no text (stopReason=${reply.stopReason})`);
+
+  // hermes' memory-recall path prefixes replies with "Ask: <your question>?".
+  // Spoken aloud that means hearing your own question read back before the
+  // answer, so drop it. Only strips a leading Ask:-line ending in "?".
+  const cleaned = reply.text.replace(/^\s*Ask:\s*[^?\n]{0,200}\?\s*/i, "").trim() || reply.text;
+  reply.text = cleaned;
   sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
   return {
     spoken: reply.text, turn_ms, stopReason: reply.stopReason,

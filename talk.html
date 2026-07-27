@@ -254,7 +254,9 @@ const PERSONAS = {
 // Machine-readable event log for the synthetic voice rig (tests/rig/driver.mjs).
 window.__voiceLabEvents = [];
 const urlParams = new URLSearchParams(location.search);
-const puppetMode = urlParams.get("puppet") === "1";
+// Classic mode is retired (M2.T4) — every session is a puppet session.
+// This was `=== "1"`, so a normal page load asked for classic and got a 400.
+const puppetMode = true;
 const noRoute = urlParams.get("noroute") === "1";
 const VOICE_AUTH = document.querySelector('meta[name="voice-auth"]').content;
 const authHeaders = { "Content-Type": "application/json", "X-Voice-Auth": VOICE_AUTH };
@@ -274,8 +276,10 @@ function speak(text) {
     type: "response.create",
     response: {
       instructions:
-        "Repeat the following message exactly, verbatim, with natural warm delivery. Do not add, remove, answer, or rephrase anything: «" +
-        text.replace(/[«»]/g, "") + "»",
+        "Read the MESSAGE below aloud, word for word, with natural warm delivery. " +
+        "Do not add, remove, answer, rephrase, or read any punctuation marks that " +
+        "delimit it. Say only the message text.\n\nMESSAGE:\n" +
+        text.replace(/[«»]/g, ""),
     },
   }));
 }
@@ -697,8 +701,8 @@ async function start() {
             conversation: "none",           // never joins the conversation [C1]
             metadata: { purpose: "filler" }, // identifiable in server events [C7]
             instructions:
-              "Say exactly this, warmly and briefly, then stop: «" +
-              msg.text.replace(/[«»]/g, "") + "»",
+              "Read this aloud, warmly and briefly, then stop. Say only the " +
+              "message text.\n\nMESSAGE:\n" + msg.text.replace(/[«»]/g, ""),
           },
         }));
         return;
