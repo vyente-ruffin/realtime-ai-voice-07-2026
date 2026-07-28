@@ -222,6 +222,13 @@ details.log summary {
     <canvas id="viz"></canvas>
   </div>
 
+  <div class="transport" style="margin-bottom:0.6rem">
+    <input id="typeBox" type="text" placeholder="…or type a message and press Enter"
+      style="flex:1;min-width:260px;background:var(--well);color:var(--text);
+             border:1px solid var(--line);border-radius:99px;padding:0.65rem 1.1rem;
+             font:0.95rem 'Space Grotesk',sans-serif">
+    <button id="sendBtn">Send</button>
+  </div>
   <div class="transport">
     <button id="startBtn">Start session</button>
     <button id="stopBtn" disabled>End</button>
@@ -275,6 +282,8 @@ function speak(text) {
   dataChannel.send(JSON.stringify({
     type: "response.create",
     response: {
+      input: [],                            // NO context: read hermes' words, do not improvise
+      metadata: { purpose: "hermes-reply" },
       instructions:
         "Read the MESSAGE below aloud, word for word, with natural warm delivery. " +
         "Do not add, remove, answer, rephrase, or read any punctuation marks that " +
@@ -449,6 +458,12 @@ function handleEvent(event) {
       setStatus("🔊 Speaking…");
       break;
     case "response.output_audio_transcript.done":
+      // Report what was ACTUALLY spoken so the server can compare it against
+      // the text hermes produced.
+      fetch("/spoken", {
+        method: "POST", headers: authHeaders,
+        body: JSON.stringify({ spokenText: event.transcript || "" }),
+      }).catch(() => {});
       currentModelLine = null;
       break;
     case "response.done":
@@ -699,6 +714,7 @@ async function start() {
           type: "response.create",
           response: {
             conversation: "none",           // never joins the conversation [C1]
+            input: [],                      // NO context: it must not answer, only read
             metadata: { purpose: "filler" }, // identifiable in server events [C7]
             instructions:
               "Read this aloud, warmly and briefly, then stop. Say only the " +
@@ -761,6 +777,26 @@ function stop(opts = {}) {
   drawIdleOrb();
   if (!statusEl.textContent.startsWith("❌")) setStatus("Stopped");
 }
+
+// Typed turns go through the exact same path as spoken ones: /turn -> hermes
+// -> say-exactly injection. Lets the app be driven without a microphone.
+const typeBox = document.getElementById("typeBox");
+const sendBtn = document.getElementById("sendBtn");
+async function sendTyped() {
+  const text = typeBox.value.trim();
+  if (!text) return;
+  typeBox.value = "";
+  addLine("you", "You (typed): " + text);
+  window.__voiceLabEvents.push({ ts: Date.now(), type: "typed.sent", text });
+  try {
+    await fetch("/turn", {
+      method: "POST", headers: authHeaders,
+      body: JSON.stringify({ item_id: "typed-" + Date.now(), transcript: text, route: true }),
+    });
+  } catch { /* server down */ }
+}
+sendBtn.addEventListener("click", sendTyped);
+typeBox.addEventListener("keydown", (e) => { if (e.key === "Enter") sendTyped(); });
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);

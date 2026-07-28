@@ -216,6 +216,8 @@ function sendFiller() {
 // Barge-in state: set when the user interrupts, so a late hermes reply is
 // dropped instead of spoken at a moment the user has already moved past [A8].
 let turnEpoch = 0;
+let lastHermesReply = "";  // for the spoken-vs-said audit
+let lastQuestion = "";
 
 export function bargeIn() {
   setUserSpeaking(true);
@@ -287,6 +289,7 @@ const DELEGATION_PREAMBLE = [
 
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
 async function routeTurn(transcript) {
+  lastQuestion = transcript;
   const started = Date.now();
   const myEpoch = turnEpoch;
   let fillerAfterMs = null;
@@ -341,6 +344,7 @@ async function routeTurn(transcript) {
   // answer, so drop it. Only strips a leading Ask:-line ending in "?".
   const cleaned = reply.text.replace(/^\s*Ask:\s*[^?\n]{0,200}\?\s*/i, "").trim() || reply.text;
   reply.text = cleaned;
+  lastHermesReply = reply.text;
   sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
   return {
     spoken: reply.text, turn_ms, stopReason: reply.stopReason,
@@ -368,7 +372,7 @@ const server = createServer(async (req, res) => {
     }
 
     // Everything below is API surface: token required (security review).
-    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in" || pathname === "/session-end" || pathname.startsWith("/test/")) {
+    if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in" || pathname === "/session-end" || pathname === "/spoken" || pathname.startsWith("/test/")) {
       if (!authorized(req, url)) {
         problem(res, 403, "Forbidden", "Missing or invalid voice auth token.");
         return;
@@ -553,6 +557,42 @@ const server = createServer(async (req, res) => {
       res.write(": connected\n\n");
       sseClients.add(res);
       req.on("close", () => sseClients.delete(res));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/spoken") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const spoken = String(body.spokenText || "");
+      const FILLERS = /^(One sec|Let me think|Still with you|Hang on|Give me a beat)/i;
+      if (FILLERS.test(spoken.trim())) {
+        appendFileSync(join(logsDir, "voice-audit.log"),
+          JSON.stringify({ at: new Date().toISOString(), kind: "filler", mouthSpoke: spoken.slice(0,120) }) + "\n");
+        res.writeHead(204); res.end(); return;
+      }
+      const expected = lastHermesReply;
+      // Fidelity: did the mouth read hermes' words, or improvise its own?
+      const norm = (t) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+      const a = new Set(norm(expected)), bSet = new Set(norm(spoken));
+      const inter = [...a].filter((w) => bSet.has(w)).length;
+      const union = new Set([...a, ...bSet]).size;
+      const jaccard = union ? +(inter / union).toFixed(3) : 0;
+      appendFileSync(
+        join(logsDir, "voice-audit.log"),
+        JSON.stringify({
+          at: new Date().toISOString(),
+          kind: "reply",
+          question: lastQuestion.slice(0, 200),
+          hermesSaid: expected.slice(0, 600),
+          mouthSpoke: spoken.slice(0, 600),
+          jaccard,
+          verdict: jaccard >= 0.6 ? "faithful" : "DIVERGED",
+        }) + "\n"
+      );
+      if (jaccard < 0.6 && expected) {
+        logger.error("Mouth diverged from hermes", { jaccard, hermesSaid: expected.slice(0, 120), mouthSpoke: spoken.slice(0, 120) });
+      }
+      res.writeHead(204);
+      res.end();
       return;
     }
 

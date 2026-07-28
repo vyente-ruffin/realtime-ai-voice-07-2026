@@ -1,0 +1,122 @@
+[
+  {
+    "q": "What is my second brain's source of truth?",
+    "expect": "Markdown Obsidian source of truth [projects/shared/second-brain-librarian-plan.md]"
+  },
+  {
+    "q": "What is my universal wiki intake flow?",
+    "expect": "inbox immutable-raw normalized-Markdown compiled-knowledge [projects/shared/second-brain-librarian-plan.md]"
+  },
+  {
+    "q": "Which three memory roles must stay separate?",
+    "expect": "Honcho wiki project-ledgers [projects/shared/second-brain-librarian-plan.md]"
+  },
+  {
+    "q": "What business model should 405Network validate?",
+    "expect": "service-led vertical productization [projects/entrepreneurship/405network-ai-business.md]"
+  },
+  {
+    "q": "What phase is my AI business in?",
+    "expect": "research and customer discovery [projects/entrepreneurship/405network-ai-business.md]"
+  },
+  {
+    "q": "What is my acquisition price ceiling?",
+    "expect": "$1M or less [projects/entrepreneurship/small-business-acquisition.md]"
+  },
+  {
+    "q": "Which businesses do I prefer to acquire?",
+    "expect": "MSP and property-management [projects/entrepreneurship/small-business-acquisition.md]"
+  },
+  {
+    "q": "Where is my acquisition dashboard?",
+    "expect": "10.69.3.132:8790 LAN dashboard [projects/entrepreneurship/small-business-acquisition.md]"
+  },
+  {
+    "q": "Which certification am I pursuing?",
+    "expect": "Azure AI Apps Agents Associate [projects/work/ai-103-certification.md]"
+  },
+  {
+    "q": "What preserves my YouTube intake order?",
+    "expect": "durable SQLite FIFO [projects/shared/youtube-ingest.md]"
+  },
+  {
+    "q": "What name do I go by?",
+    "expect": "V by name"
+  },
+  {
+    "q": "How old am I?",
+    "expect": "50 years old"
+  },
+  {
+    "q": "What is my Microsoft role?",
+    "expect": "Microsoft AI engineer"
+  },
+  {
+    "q": "What company do I own?",
+    "expect": "405Network Inc. owner"
+  },
+  {
+    "q": "Where is my MSP based?",
+    "expect": "Orange County California"
+  },
+  {
+    "q": "What field does my wife work in?",
+    "expect": "commercial real estate"
+  },
+  {
+    "q": "How much IT experience do I have?",
+    "expect": "25-plus years in IT"
+  },
+  {
+    "q": "Why must you minimize my stress?",
+    "expect": "stress is medically dangerous"
+  },
+  {
+    "q": "Do I prefer cloud or self-hosting?",
+    "expect": "self-hosted over cloud"
+  },
+  {
+    "q": "What do I optimize AI infrastructure for?",
+    "expect": "accuracy and reliability"
+  },
+  {
+    "q": "How do I prefer answers delivered?",
+    "expect": "terse proof-first answers"
+  },
+  {
+    "q": "Should you ask me to verify things?",
+    "expect": "act autonomously with tools"
+  },
+  {
+    "q": "What proves something really works?",
+    "expect": "positive and adversarial tests"
+  },
+  {
+    "q": "After proving status, what should you do?",
+    "expect": "prove then stop"
+  },
+  {
+    "q": "What is the capital of France?",
+    "expect": "Paris France"
+  },
+  {
+    "q": "What is gold's chemical symbol?",
+    "expect": "Au gold"
+  },
+  {
+    "q": "What is the largest planet?",
+    "expect": "Jupiter largest planet"
+  },
+  {
+    "q": "Who wrote Nineteen Eighty-Four?",
+    "expect": "George Orwell"
+  },
+  {
+    "q": "Which planet is called the Red Planet?",
+    "expect": "Mars red planet"
+  },
+  {
+    "q": "What shape is DNA?",
+    "expect": "double helix"
+  }
+]

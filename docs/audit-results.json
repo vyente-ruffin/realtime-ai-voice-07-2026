@@ -1,0 +1,242 @@
+[
+  {
+    "n": 1,
+    "q": "What is my second brain's source of truth?",
+    "expect": "Markdown Obsidian source of truth [projects/shared/second-brain-librarian-plan.md]",
+    "hermesSaid": "Your Dropbox Obsidian Markdown vault is the source of truth for canonical evidence and compiled knowledge.",
+    "spoken": "Your Dropbox Obsidian Markdown vault is the source of truth for canonical evidence and compiled knowledge.",
+    "answered": true
+  },
+  {
+    "n": 2,
+    "q": "What is my universal wiki intake flow?",
+    "expect": "inbox immutable-raw normalized-Markdown compiled-knowledge [projects/shared/second-brain-librarian-plan.md]",
+    "hermesSaid": "Source → immutable raw evidence → normalized learning → compiled knowledge → bounded retrieval → decision or reusable skill.",
+    "spoken": "Source immutable raw evidence normalized learning compiled knowledge bounded retrieval decision or reusable skill",
+    "answered": true
+  },
+  {
+    "n": 3,
+    "q": "Which three memory roles must stay separate?",
+    "expect": "Honcho wiki project-ledgers [projects/shared/second-brain-librarian-plan.md]",
+    "hermesSaid": "Honcho or session memory for people and conversations; the wiki for source-backed knowledge; and project ledgers for current execution state.",
+    "spoken": "Honcho or session memory for people and conversations; the wiki for source-backed knowledge; and project ledgers for current execution state.",
+    "answered": true
+  },
+  {
+    "n": 4,
+    "q": "What business model should 405Network validate?",
+    "expect": "service-led vertical productization [projects/entrepreneurship/405network-ai-business.md]",
+    "hermesSaid": "Service-led vertical productization: fixed-scope assessment, paid pilot, managed monthly service, then productize the repeatable 80 percent only after multiple customers prove demand.",
+    "spoken": "Service-led vertical productization: fixed-scope assessment, paid pilot, managed monthly service, then productize the repeatable 80 percent only after multiple customers prove demand.",
+    "answered": true
+  },
+  {
+    "n": 5,
+    "q": "What phase is my AI business in?",
+    "expect": "research and customer discovery [projects/entrepreneurship/405network-ai-business.md]",
+    "hermesSaid": "Research and customer discovery only. No AI product has been selected or authorized for construction.",
+    "spoken": "Research and customer discovery only. No AI product has been selected or authorized for construction.",
+    "answered": true
+  },
+  {
+    "n": 6,
+    "q": "What is my acquisition price ceiling?",
+    "expect": "$1M or less [projects/entrepreneurship/small-business-acquisition.md]",
+    "hermesSaid": "One million dollars or less.",
+    "spoken": "One million dollars or less.",
+    "answered": true
+  },
+  {
+    "n": 7,
+    "q": "Which businesses do I prefer to acquire?",
+    "expect": "MSP and property-management [projects/entrepreneurship/small-business-acquisition.md]",
+    "hermesSaid": "Managed service providers and property-management companies.",
+    "spoken": "Managed service providers and property-management companies.",
+    "answered": true
+  },
+  {
+    "n": 8,
+    "q": "Where is my acquisition dashboard?",
+    "expect": "10.69.3.132:8790 LAN dashboard [projects/entrepreneurship/small-business-acquisition.md]",
+    "hermesSaid": "Your acquisition dashboard is at http://10.69.3.132:8790/.",
+    "spoken": "Your acquisition dashboard is at http://10.69.3.132:8790/.",
+    "answered": true
+  },
+  {
+    "n": 9,
+    "q": "Which certification am I pursuing?",
+    "expect": "Azure AI Apps Agents Associate [projects/work/ai-103-certification.md]",
+    "hermesSaid": "Microsoft Certified: Azure AI Apps and Agents Developer Associate, by passing Exam AI-103.",
+    "spoken": "Microsoft Certified Azure AI Apps and Agents Developer Associate by passing Exam AI 103",
+    "answered": true
+  },
+  {
+    "n": 10,
+    "q": "What preserves my YouTube intake order?",
+    "expect": "durable SQLite FIFO [projects/shared/youtube-ingest.md]",
+    "hermesSaid": "A durable SQLite FIFO queue at `~/.hermes/intel/yt-queue.sqlite3`, drained one video at a time by a single launchd worker.",
+    "spoken": "A durable SQLite FIFO queue at ~/.hermes/intel/yt-queue.sqlite3, drained one video at a time by a single launchd worker",
+    "answered": true
+  },
+  {
+    "n": 11,
+    "q": "What name do I go by?",
+    "expect": "V by name",
+    "hermesSaid": "V.",
+    "spoken": "V",
+    "answered": true
+  },
+  {
+    "n": 12,
+    "q": "How old am I?",
+    "expect": "50 years old",
+    "hermesSaid": "You’re 50 years old.",
+    "spoken": "You’re 50 years old.",
+    "answered": true
+  },
+  {
+    "n": 13,
+    "q": "What is my Microsoft role?",
+    "expect": "Microsoft AI engineer",
+    "hermesSaid": "You’re an AI engineer at Microsoft.",
+    "spoken": "You’re an AI engineer at Microsoft.",
+    "answered": true
+  },
+  {
+    "n": 14,
+    "q": "What company do I own?",
+    "expect": "405Network Inc. owner",
+    "hermesSaid": "405Network, an Orange County managed service provider.",
+    "spoken": "405Network, an Orange County managed service provider.",
+    "answered": true
+  },
+  {
+    "n": 15,
+    "q": "Where is my MSP based?",
+    "expect": "Orange County California",
+    "hermesSaid": "Orange County, California.",
+    "spoken": "Orange County, California.",
+    "answered": true
+  },
+  {
+    "n": 16,
+    "q": "What field does my wife work in?",
+    "expect": "commercial real estate",
+    "hermesSaid": "Commercial real estate.",
+    "spoken": "Commercial real estate.",
+    "answered": true
+  },
+  {
+    "n": 17,
+    "q": "How much IT experience do I have?",
+    "expect": "25-plus years in IT",
+    "hermesSaid": "More than 25 years.",
+    "spoken": "More than 25 years.",
+    "answered": true
+  },
+  {
+    "n": 18,
+    "q": "Why must you minimize my stress?",
+    "expect": "stress is medically dangerous",
+    "hermesSaid": "Because you’re gravely ill and disabled, and stress is medically dangerous for you.",
+    "spoken": "Because you’re gravely ill and disabled, and stress is medically dangerous for you.",
+    "answered": true
+  },
+  {
+    "n": 19,
+    "q": "Do I prefer cloud or self-hosting?",
+    "expect": "self-hosted over cloud",
+    "hermesSaid": "Self-hosting.",
+    "spoken": "Self-hosting.",
+    "answered": true
+  },
+  {
+    "n": 20,
+    "q": "What do I optimize AI infrastructure for?",
+    "expect": "accuracy and reliability",
+    "hermesSaid": "Accuracy and reliability—not cost or latency.",
+    "spoken": "Accuracy and reliability—not cost or latency.",
+    "answered": true
+  },
+  {
+    "n": 21,
+    "q": "How do I prefer answers delivered?",
+    "expect": "terse proof-first answers",
+    "hermesSaid": "Concise, direct, ELI5, and proof-backed—answer first, with no guessing, jargon, repetition, or unnecessary detail.",
+    "spoken": "Concise, direct, ELI5, and proof-backed—answer first, with no guessing, jargon, repetition, or unnecessary detail.",
+    "answered": true
+  },
+  {
+    "n": 22,
+    "q": "Should you ask me to verify things?",
+    "expect": "act autonomously with tools",
+    "hermesSaid": "No. I should verify things myself with available tools and only ask you if I’m genuinely blocked.",
+    "spoken": "No. I should verify things myself with available tools and only ask you if I’m genuinely blocked.",
+    "answered": true
+  },
+  {
+    "n": 23,
+    "q": "What proves something really works?",
+    "expect": "positive and adversarial tests",
+    "hermesSaid": "Real use after declaring the desired and undesired outcomes, with both positive and adversarial negative tests passing. Mocks or synthetic checks alone don’t prove it.",
+    "spoken": "Real use after declaring the desired and undesired outcomes, with both positive and adversarial negative tests passing. Mocks or synthetic checks alone don’t prove it.",
+    "answered": true
+  },
+  {
+    "n": 24,
+    "q": "After proving status, what should you do?",
+    "expect": "prove then stop",
+    "hermesSaid": "Stop. Report only the proven status and evidence—don’t change or “improve” anything unasked.",
+    "spoken": "Stop. Report only the proven status and evidence—don’t change or “improve” anything unasked.",
+    "answered": true
+  },
+  {
+    "n": 25,
+    "q": "What is the capital of France?",
+    "expect": "Paris France",
+    "hermesSaid": "Paris.",
+    "spoken": "Paris.",
+    "answered": true
+  },
+  {
+    "n": 26,
+    "q": "What is gold's chemical symbol?",
+    "expect": "Au gold",
+    "hermesSaid": "Au.",
+    "spoken": "Au.",
+    "answered": true
+  },
+  {
+    "n": 27,
+    "q": "What is the largest planet?",
+    "expect": "Jupiter largest planet",
+    "hermesSaid": "Jupiter.",
+    "spoken": "Jupiter.",
+    "answered": true
+  },
+  {
+    "n": 28,
+    "q": "Who wrote Nineteen Eighty-Four?",
+    "expect": "George Orwell",
+    "hermesSaid": "George Orwell.",
+    "spoken": "George Orwell.",
+    "answered": true
+  },
+  {
+    "n": 29,
+    "q": "Which planet is called the Red Planet?",
+    "expect": "Mars red planet",
+    "hermesSaid": "Mars.",
+    "spoken": "Mars.",
+    "answered": true
+  },
+  {
+    "n": 30,
+    "q": "What shape is DNA?",
+    "expect": "double helix",
+    "hermesSaid": "A double helix.",
+    "spoken": "A double helix.",
+    "answered": true
+  }
+]
