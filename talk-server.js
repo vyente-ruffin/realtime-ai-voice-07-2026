@@ -86,12 +86,25 @@ const ALLOWED_ORIGINS = new Set([
   `http://localhost:${PORT}`,
   `http://127.0.0.1:${PORT}`,
 ]);
+// Tailscale serve proxies https://<host>.<tailnet>.ts.net -> this loopback
+// port, so a phone's Origin is the tailnet hostname. Allow *.ts.net over
+// HTTPS: reaching it already requires being on the tailnet, and the
+// per-process auth token is still required on every call.
+function originAllowed(origin) {
+  if (!origin) return true;                       // non-browser callers
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const u = new URL(origin);
+    return u.protocol === "https:" && u.hostname.endsWith(".ts.net");
+  } catch {
+    return false;
+  }
+}
 
 function authorized(req, url) {
   const token = req.headers["x-voice-auth"] || url.searchParams.get("auth");
   if (token !== AUTH_TOKEN) return false;
-  const origin = req.headers.origin;
-  if (origin && !ALLOWED_ORIGINS.has(origin)) return false;
+  if (!originAllowed(req.headers.origin)) return false;
   return true;
 }
 
