@@ -54,7 +54,7 @@ Endpoint = `https://<resource-name>.services.ai.azure.com` (or `.openai.azure.co
 ## Gotchas that WILL bite you again (all hit for real; details in README Appendix A)
 
 1. **Tenant trap.** The account here has multiple subscriptions across DIFFERENT tenants, and the az default account is a service principal that does not exist in the resource's tenant. `DefaultAzureCredential` → wrong-tenant token → opaque 400 on the WS handshake. NEVER rely on the az default account; always mint with `--subscription <the-resource's-sub>` and pass it via `AZURE_TOKEN` (both scripts prefer that env var). Setting `AZURE_TENANT_ID` makes it WORSE (AADSTS700016). To diagnose token issues: decode the JWT payload and check `tid`/`upn`/`idtyp`.
-2. **`AZURE_TOKEN` expires in ~60–90 min.** Symptom: `/token` returns 502/401. Fix: restart the server with a fresh token. There is no auto-refresh (deliberate — test harness scope).
+2. **Entra tokens expire in ~60–90 min — now handled.** `getEntraToken()` caches and re-mints via `az account get-access-token --subscription <sub>` 5 min before expiry, so long-running sessions survive. `AZURE_TOKEN` is still honoured as an override. If `/token` fails after hours of uptime, the **`az` login itself** has lapsed — `az login`, not a server restart.
 3. **curl + WebSocket = lie.** Probing the WS endpoint without `--http1.1` gives a fake 404 (HTTP/2 drops the Upgrade header).
 4. **Mic errors are usually hardware/context, not code.** `NotFoundError` = no microphone exists (the dev machine is a Mac mini — it has none; a headset must be attached). From another machine, `getUserMedia` needs `https://` or `localhost` (SSH tunnel works).
 5. **Voice locks at first spoken word** of a session. Changing voice = new session. The UI already enforces this (dropdown disabled while live).
@@ -66,8 +66,8 @@ Browser → local `talk-server.js` (`POST /token`, exchanges real Entra token fo
 
 ## Deliberately NOT done (candidate next steps)
 
-- **HTTPS/self-signed cert for the talk server** — so other LAN devices (phones) get mic access without tunnels/flags.
-- **Token auto-refresh** in `talk-server.js` (re-mint via `DefaultAzureCredential` on 401, or shell out to az).
+- ~~**HTTPS for the talk server** so phones get mic access~~ — **done**, via `tailscale serve` (real Let's Encrypt cert on a `.ts.net` name; a self-signed cert would still have blocked the mic). See README Step 7.
+- ~~**Token auto-refresh**~~ — **done**, see gotcha #2.
 - **Audio-file input test** ("speech in, speech out" scripted variant — docs' `audio-in-audio-out` pattern; needs PCM16/24kHz mono input, `ffmpeg -i in.wav -ar 24000 -ac 1 -f s16le in.pcm`).
 - **Function calling / tools** during voice sessions — untested here.
 - **WebSocket observer** on the WebRTC call (record/steer sessions server-side; see WebRTC how-to Step 3).

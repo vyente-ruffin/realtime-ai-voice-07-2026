@@ -188,6 +188,65 @@ The page has a **Session settings** panel — persona presets (assistant, interv
 | `noise_reduction` | `near_field` / `far_field` | Match your mic: headset vs room/laptop mic |
 | `transcription` | `{ model: "whisper-1" }` | Enables "You:" lines — without it, your side of the conversation is never transcribed |
 
+### Step 7 — Reach it from your phone (or any other machine)
+
+`getUserMedia` refuses to hand over a microphone unless the page is a **secure context** — `https://` or `localhost`. That single rule is why the app works on the host machine and appears "broken" everywhere else. Two ways around it:
+
+**A. Another computer — SSH tunnel.** The page arrives as `localhost`, which counts as secure:
+
+```bash
+ssh -L 8787:localhost:8787 <user>@<host>     # leave running
+# then open http://localhost:8787 on your laptop
+```
+
+**B. A phone — [Tailscale](https://tailscale.com) with real HTTPS.** A tunnel isn't an option on iOS, and a self-signed cert still blocks the mic. Tailscale issues a genuine Let's Encrypt certificate for your machine's private `.ts.net` name, so the browser grants mic access:
+
+```bash
+tailscale serve --bg 8787       # proxies https://<machine>.<tailnet>.ts.net -> localhost:8787
+tailscale serve status          # confirm
+```
+
+Install Tailscale on the phone, sign in with the same account, then open `https://<machine>.<tailnet>.ts.net`. Nothing is exposed to the public internet — only your own devices can reach it.
+
+Two things that will bite you:
+
+- **The server's CORS allowlist must include the tailnet origin.** A phone's `Origin` is the `.ts.net` hostname, not `localhost`; without it every `/token` call returns `403` while the page itself loads fine. `talk-server.js` accepts `https://*.ts.net` for this reason.
+- **On wifi the hostname may not resolve.** `.ts.net` names are answered only by Tailscale's resolver (`100.100.100.100`). If a phone prefers the local router's DNS it will fail on wifi and work on cellular — a confusing split. Fix: enable **"Use Tailscale DNS"** in the phone's Tailscale app, or **"Override local DNS"** in the [tailnet DNS admin page](https://login.tailscale.com/admin/dns).
+
+### Step 8 — Keep it running
+
+Started by hand, the server dies with its terminal and nothing survives a reboot. `watchdog.sh` plus a launchd agent fixes that: it checks every 30s and restarts whichever piece is down — Tailscale, the `serve` config, or the server itself.
+
+```bash
+cp watchdog.sh <somewhere-stable>            # it references absolute paths; edit REPO/PORT at the top
+launchctl load ~/Library/LaunchAgents/com.405network.talkserver.plist
+tail -f ~/.405network/logs/talkserver-watchdog.log
+```
+
+The launchd agent must set `PATH` explicitly — launchd does **not** inherit your shell's, so `~/.local/bin` is missing and the server dies at startup with `spawn hermes ENOENT`.
+
+Chosen over installing `tailscaled` as a root system daemon: identical recovery from reboots and crashes, one moving part instead of two, no `sudo`. The tradeoff is that it runs in the login session, so a full logout stops it — irrelevant on an always-logged-in machine, wrong for a headless server.
+
+### Where the conversation is recorded
+
+`logs/` holds several files that look interchangeable but are not:
+
+| File | Contents |
+|---|---|
+| **`voice-audit.log`** | **The real transcript** — `question`, `hermesSaid` (what the brain wrote), `mouthSpoke` (what was actually said), plus a `jaccard` score flagging when the voice improvised instead of reading the brain's words |
+| `turns-routed.log` | Latency only — your words in full, but the reply as `chars: 187`. **Not** a transcript |
+| `turns.log` | Raw user speech as it arrived |
+| `fillers.log` / `cancel.log` / `announcements.log` | Stalls, barge-ins, out-of-turn task completions |
+
+Read the conversation:
+
+```bash
+grep '"kind":"reply"' logs/voice-audit.log | tail -5 | \
+  python3 -c 'import sys,json
+for l in sys.stdin:
+    d=json.loads(l); print("YOU:",d["question"][:120]); print("AI :",d["mouthSpoke"][:200],"\n")'
+```
+
 ---
 
 ## Troubleshooting (every one of these actually happened)
@@ -201,9 +260,13 @@ The page has a **Session settings** panel — persona presets (assistant, interv
 | Page works locally, mic dead from another computer | `getUserMedia` needs a secure context (`https://` or `localhost`) | SSH tunnel: `ssh -L 8787:localhost:8787 user@host`, then open `localhost:8787` there |
 | It stops talking but text keeps printing | By design — text streams faster than speech; on interrupt the *audio* is cut and the model's memory truncated to what you heard | Cosmetic: freeze the transcript on `output_audio_buffer.cleared` (this repo does) |
 | Your "You:" line appears *after* the model's reply to it | Input transcription (whisper) is a slower parallel job — the model answers your raw audio before your words are transcribed | Reserve the line on `input_audio_buffer.committed`, fill it by `item_id` when transcription completes (this repo does) |
-| `/token` starts failing after ~1 hour | Entra token expired | Restart the server with a fresh `AZURE_TOKEN` |
+| `/token` starts failing after ~1 hour | Entra token expired | No longer applies — `talk-server.js` re-mints via `az` before expiry. If it still fails, your `az` session itself has lapsed: `az login` |
 | `401` on `/client_secrets` | Missing RBAC role | Step 2 |
 | `403` on WebRTC | Resource not in East US 2 / Sweden Central | Redeploy in a supported region |
+| Page loads on the phone, but `/token` returns `403` | The CORS allowlist has only `localhost`; the phone's `Origin` is the `.ts.net` hostname | Allow `https://*.ts.net` (Step 7) |
+| Works on cellular, fails on wifi | Phone is asking the local router's DNS, which knows nothing of `.ts.net` | "Use Tailscale DNS" on the phone, or "Override local DNS" tailnet-wide (Step 7) |
+| Server dies at startup with `spawn hermes ENOENT` — but runs fine by hand | launchd does not inherit your shell `PATH`, so `~/.local/bin` is missing | Set `PATH` explicitly in the launchd plist (Step 8) |
+| `502` through the Tailscale URL | Tunnel is up, but nothing is listening on 8787 behind it | Check the server is actually running — `lsof -ti:8787` |
 
 ## ELI5 glossary
 
