@@ -336,6 +336,20 @@ async function routeTurn(transcript) {
       join(logsDir, "cancel.log"),
       JSON.stringify({ at: new Date().toISOString(), event: "reply-dropped", turn_ms }) + "\n"
     );
+    // Never spoken, so /spoken will never fire for it — record it here or the
+    // words are lost. Kept in the audit log so a barge-in still leaves a
+    // readable trace of what it was about to say.
+    appendFileSync(
+      join(logsDir, "voice-audit.log"),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        kind: "dropped",
+        question: transcript,
+        hermesSaid: reply.text,
+        mouthSpoke: "",
+        turn_ms,
+      }) + "\n"
+    );
     logger.info("Late reply dropped after barge-in", { turn_ms });
     return { spoken: null, dropped: true, turn_ms, fillerFired: fillerAfterMs !== null, fillerAfterMs };
   }
@@ -579,7 +593,7 @@ const server = createServer(async (req, res) => {
       const FILLERS = /^(One sec|Let me think|Still with you|Hang on|Give me a beat)/i;
       if (FILLERS.test(spoken.trim())) {
         appendFileSync(join(logsDir, "voice-audit.log"),
-          JSON.stringify({ at: new Date().toISOString(), kind: "filler", mouthSpoke: spoken.slice(0,120) }) + "\n");
+          JSON.stringify({ at: new Date().toISOString(), kind: "filler", mouthSpoke: spoken }) + "\n");
         res.writeHead(204); res.end(); return;
       }
       const expected = lastHermesReply;
@@ -594,9 +608,12 @@ const server = createServer(async (req, res) => {
         JSON.stringify({
           at: new Date().toISOString(),
           kind: "reply",
-          question: lastQuestion.slice(0, 200),
-          hermesSaid: expected.slice(0, 600),
-          mouthSpoke: spoken.slice(0, 600),
+          // Stored in full: this file is the conversation record, not a
+          // sample of it. Truncating here left replies unreadable after the
+          // browser tab closed — the words existed nowhere else.
+          question: lastQuestion,
+          hermesSaid: expected,
+          mouthSpoke: spoken,
           jaccard,
           verdict: jaccard >= 0.6 ? "faithful" : "DIVERGED",
         }) + "\n"
