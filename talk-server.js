@@ -300,6 +300,41 @@ const DELEGATION_PREAMBLE = [
   "   and brief — they are spoken aloud.",
 ].join(" ");
 
+// TASK-* sentinels exist so the gates can grep rather than guess [H9][H10].
+// They were never meant to be heard: spoken aloud, "TASK-ACCEPTED proc_3839b87"
+// becomes "proc underscore 3 8 3 9 b 8 7" — the machine marker read out as
+// speech. Strip the sentinel and its handle at the mouth, keep both in the log
+// so status lookups and gates still work.
+const SENTINEL_SPEECH = {
+  "TASK-ACCEPTED": "Starting that now — I'll let you know when it's done.",
+  "TASK-RUNNING": "That's still running.",
+  "TASK-DONE": "That's finished.",
+  "HANDOFF-SCHEDULED": "I'll send the results over when they land.",
+};
+const SENTINEL_RE = /\b(TASK-ACCEPTED|TASK-RUNNING|TASK-DONE|HANDOFF-SCHEDULED)\b[ \t]*([A-Za-z0-9_-]{4,})?/g;
+
+let lastTaskHandle = null;
+
+function speakable(text) {
+  let sentinel = null;
+  const stripped = text.replace(SENTINEL_RE, (_m, tag, handle) => {
+    sentinel = tag;
+    if (handle) lastTaskHandle = handle;
+    return "";
+  }).replace(/\s{2,}/g, " ")
+    // Removing the sentinel can leave the joining punctuation stranded at the
+    // front ("— it's still counting"), which reads as a stumble when spoken.
+    .replace(/^[\s—–-]*[,;:]?\s*/, "")
+    .trim();
+  if (!sentinel) return text;
+  appendFileSync(
+    join(logsDir, "announcements.log"),
+    JSON.stringify({ at: new Date().toISOString(), event: "sentinel-stripped", sentinel, handle: lastTaskHandle }) + "\n"
+  );
+  // Keep hermes' own sentence when it wrote one; it names the actual task.
+  return stripped || SENTINEL_SPEECH[sentinel] || stripped;
+}
+
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
 async function routeTurn(transcript) {
   lastQuestion = transcript;
@@ -370,7 +405,7 @@ async function routeTurn(transcript) {
   // Spoken aloud that means hearing your own question read back before the
   // answer, so drop it. Only strips a leading Ask:-line ending in "?".
   const cleaned = reply.text.replace(/^\s*Ask:\s*[^?\n]{0,200}\?\s*/i, "").trim() || reply.text;
-  reply.text = cleaned;
+  reply.text = speakable(cleaned);
   lastHermesReply = reply.text;
   sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
   return {
