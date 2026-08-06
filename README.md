@@ -215,11 +215,12 @@ Two things that will bite you:
 
 ### Step 8 — Keep it running
 
-Started by hand, the server dies with its terminal and nothing survives a reboot. `watchdog.sh` plus a launchd agent fixes that: it checks every 30s and restarts whichever piece is down — Tailscale, the `serve` config, or the server itself.
+Started by hand, the server dies with its terminal and nothing survives a reboot. `watchdog.sh` plus a launchd agent fixes that. Every 30 seconds it verifies the listener, the real local application page, the exact Tailscale Serve proxy, the certificate-backed remote page, and the `hermes -p voice acp` child. Every five minutes it also mints (but never prints) a real Azure Realtime ephemeral key. A failed check converges Tailscale/Serve and restarts the voice stack, then verifies recovery.
 
 ```bash
 cp watchdog.sh <somewhere-stable>            # it references absolute paths; edit REPO/PORT at the top
 launchctl load ~/Library/LaunchAgents/com.405network.talkserver.plist
+bash tests/watchdog-healthcheck.sh            # healthy + three fail-closed scenarios
 tail -f ~/.405network/logs/talkserver-watchdog.log
 ```
 
