@@ -265,19 +265,23 @@ const urlParams = new URLSearchParams(location.search);
 // This was `=== "1"`, so a normal page load asked for classic and got a 400.
 const puppetMode = true;
 const noRoute = urlParams.get("noroute") === "1";
+const isTest = urlParams.get("test") === "1";
+const isSyntheticInput = isTest || urlParams.get("synthetic") === "1";
 const VOICE_AUTH = document.querySelector('meta[name="voice-auth"]').content;
 const authHeaders = { "Content-Type": "application/json", "X-Voice-Auth": VOICE_AUTH };
 
 // Injections that arrive before the data channel opens are queued, not
 // dropped — from M2 these carry hermes' actual words.
 const speakQueue = [];
+let responseInjectionPending = false;
 
 function speak(text) {
-  if (!dataChannel || dataChannel.readyState !== "open") {
+  if (!dataChannel || dataChannel.readyState !== "open" || responseInjectionPending || speaking) {
     speakQueue.push(text);
     window.__voiceLabEvents.push({ ts: Date.now(), type: "speak.queued", text });
     return;
   }
+  responseInjectionPending = true;
   window.__voiceLabEvents.push({ ts: Date.now(), type: "speak.received", text });
   dataChannel.send(JSON.stringify({
     type: "response.create",
@@ -294,7 +298,8 @@ function speak(text) {
 }
 
 function flushSpeakQueue() {
-  while (speakQueue.length && dataChannel && dataChannel.readyState === "open") {
+  if (speakQueue.length && dataChannel && dataChannel.readyState === "open"
+      && !responseInjectionPending && !speaking) {
     speak(speakQueue.shift());
   }
 }
@@ -407,6 +412,7 @@ function handleEvent(event) {
       markInterrupted();
       break;
     case "response.created":
+      responseInjectionPending = false;
       dropTranscript = false;
       speaking = true;
       break;
@@ -438,6 +444,7 @@ function handleEvent(event) {
         body: JSON.stringify({
           item_id: event.item_id,
           transcript: event.transcript || "",
+          provenance: isSyntheticInput ? "synthetic test input" : "user-authored/app-transcribed",
           route: !noRoute,
         }),
       }).catch(() => { /* server down; page keeps working */ });
@@ -467,12 +474,17 @@ function handleEvent(event) {
       currentModelLine = null;
       break;
     case "response.done":
+      responseInjectionPending = false;
       speaking = false;
       setStatus(muted ? "🔇 Muted" : "🟢 Your turn — keep talking or press End");
+      flushSpeakQueue();
       if (rotationPending) requestRotation();
       break;
     case "error":
+      responseInjectionPending = false;
+      speaking = false;
       logMeta("Error event: " + JSON.stringify(event));
+      flushSpeakQueue();
       break;
   }
 }
@@ -791,7 +803,12 @@ async function sendTyped() {
   try {
     await fetch("/turn", {
       method: "POST", headers: authHeaders,
-      body: JSON.stringify({ item_id: "typed-" + Date.now(), transcript: text, route: true }),
+      body: JSON.stringify({
+        item_id: "typed-" + Date.now(),
+        transcript: text,
+        provenance: isTest ? "synthetic test input" : "user-authored/app-transcribed",
+        route: true,
+      }),
     });
   } catch { /* server down */ }
 }

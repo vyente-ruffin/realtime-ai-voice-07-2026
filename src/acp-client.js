@@ -17,10 +17,45 @@ const PROMPT_TIMEOUT_MS = 300_000;
 const DRAIN_MS = 800;   // let post-response chunks settle
 const TAIL_MS = 1_500;  // chunks this soon after a reply are its tail, not news
 
+export async function waitForCancellation(promptPromise, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new TypeError("timeoutMs must be a non-negative finite number");
+  }
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(
+      () => resolve({ completed: false, stopReason: "timeout", error: null }),
+      timeoutMs
+    );
+  });
+  const settled = Promise.resolve(promptPromise).then(
+    (value) => ({ completed: true, stopReason: value?.stopReason ?? "unknown", error: null }),
+    (error) => ({ completed: true, stopReason: "error", error: String(error?.message ?? error) })
+  );
+  const result = await Promise.race([settled, timeout]);
+  clearTimeout(timer);
+  return result;
+}
+
 // Tool-call kinds we consider read-class: safe to auto-approve because they
 // cannot mutate state. Everything else requires spoken confirmation [A9].
 const READ_KINDS = new Set(["read", "search", "fetch", "think"]);
 const READ_TITLE = /^(read|list|search|show|view|get|find|grep|cat)\b/i;
+
+export class PromptLane {
+  #pending = 0;
+
+  isBusy() {
+    return this.#pending > 0;
+  }
+
+  track(promise) {
+    this.#pending += 1;
+    return Promise.resolve(promise).finally(() => {
+      this.#pending -= 1;
+    });
+  }
+}
 
 export class AcpClient {
   constructor({ cwd = process.cwd(), onChunk = null, onPermission = null, onAnnouncement = null } = {}) {
@@ -37,7 +72,9 @@ export class AcpClient {
     this.pendingPermissions = new Map();
     this.dead = false;
     this.inFlight = false;
+    this.promptLane = new PromptLane();
     this.promptChain = Promise.resolve();
+    this.activePrompt = null;
     this.lastPromptEndMs = 0;
     this.announceBuffer = [];
     this.announceTimer = null;
@@ -56,6 +93,13 @@ export class AcpClient {
   // failure would surface as a broken turn instead of a transparent respawn.
   isAlive() {
     return Boolean(this.child) && !this.dead && this.child.exitCode === null;
+  }
+
+  // True from the instant a caller reserves this prompt lane until that prompt
+  // settles. `inFlight` alone is too late: prompt() queues via a microtask, so
+  // two HTTP requests could otherwise both select the same shared ACP client.
+  isBusy() {
+    return this.promptLane.isBusy();
   }
 
   async start() {
@@ -108,11 +152,17 @@ export class AcpClient {
   prompt(text) {
     const run = () => this.#promptNow(text);
     const result = this.promptChain.then(run, run);
+    const tracked = this.promptLane.track(result);
+    this.activePrompt = tracked;
+    void tracked.then(
+      () => { if (this.activePrompt === tracked) this.activePrompt = null; },
+      () => { if (this.activePrompt === tracked) this.activePrompt = null; }
+    );
     // The next prompt waits for this one PLUS a drain window, so trailing
     // chunks settle before a new turn starts collecting.
     const drain = () => new Promise((r) => setTimeout(r, DRAIN_MS));
-    this.promptChain = result.then(drain, drain);
-    return result;
+    this.promptChain = tracked.then(drain, drain);
+    return tracked;
   }
 
   async #promptNow(text) {
@@ -154,6 +204,15 @@ export class AcpClient {
     this.pendingPermissions.clear();
     logger.info("session/cancel sent", { sessionId: this.sessionId });
     return true;
+  }
+
+  async cancelAndWait(timeoutMs = 2_000) {
+    const prompt = this.activePrompt;
+    const sent = this.cancel();
+    if (!sent || !prompt) {
+      return { sent: false, completed: true, stopReason: "not_in_flight", error: null };
+    }
+    return { sent: true, ...(await waitForCancellation(prompt, timeoutMs)) };
   }
 
   // Permission policy [A9]: auto-allow read-class work only. Anything that can

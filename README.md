@@ -267,7 +267,83 @@ for l in sys.stdin:
 | Page loads on the phone, but `/token` returns `403` | The CORS allowlist has only `localhost`; the phone's `Origin` is the `.ts.net` hostname | Allow `https://*.ts.net` (Step 7) |
 | Works on cellular, fails on wifi | Phone is asking the local router's DNS, which knows nothing of `.ts.net` | "Use Tailscale DNS" on the phone, or "Override local DNS" tailnet-wide (Step 7) |
 | Server dies at startup with `spawn hermes ENOENT` — but runs fine by hand | launchd does not inherit your shell `PATH`, so `~/.local/bin` is missing | Set `PATH` explicitly in the launchd plist (Step 8) |
+| A voice question starts tools but never gives an answer or task receipt | Hermes ignored the prompt-only 15s delegation rule; the single ACP session stayed blocked until cancel/timeout | Server-enforced long-turn handoff now returns a receipt at 15s, detaches that ACP session as the background worker, and opens a fresh brain for conversation |
 | `502` through the Tailscale URL | Tunnel is up, but nothing is listening on 8787 behind it | Check the server is actually running — `lsof -ti:8787` |
+
+## Voice long-turn reliability contract
+
+### What / when / why
+
+As of **2026-08-07**, every real Hermes voice turn has a server-enforced response boundary. A turn that finishes before 15 seconds follows the normal answer path. A turn still active at 15 seconds returns the machine receipt `TASK-ACCEPTED <voice-handle>` (rendered as a short natural sentence by the mouth), maps that handle to the full ACP session in the audit log, keeps the original work running, and announces its final answer when that work resolves.
+
+This repairs the production incident recorded in `~/.405network/logs/talkserver.log` at `2026-08-06T21:37:53Z`: a model-latency question triggered foreground skill/file searches, including three 20.8s failed reads and a 60.5s search. No receipt was emitted; barge-in cancelled the shared ACP session, and `/turn` eventually failed at the five-minute protocol timeout. A prompt telling the model to delegate was policy, not an enforcement mechanism.
+
+### First principles and plan
+
+- Spoken dead air is a user-visible failure; a filler is not a task receipt.
+- The work already running is the source of truth. Do not duplicate, suppress, or fake it.
+- `Promise.race` selects the foreground response boundary but does not cancel the losing work promise.
+- Once a turn is backgrounded, the application issues a real `voice-<8 hex>` task handle, records its mapped ACP session, and detaches that ACP child from the foreground slot. A replacement foreground ACP child starts immediately, so new speech never queues behind or cancels the detached task.
+- Desired state: quick answer inline; slow answer acknowledged by 15s; completion spoken later; unrelated turns remain available.
+- Undesired state: one shared ACP child remains occupied, barge-in cancels the work, or the caller waits for the 300s `session/prompt` timeout.
+- Out of scope: changing the Hermes model, hiding tool failures, weakening the 15s contract, or making process-local ACP work survive a machine restart. Durable work still belongs in Hermes cron/background-terminal facilities.
+
+```text
+voice transcript
+      |
+      v
+Hermes ACP prompt ----- finishes <15s -----> normal spoken answer
+      |
+      +---- still active at 15s
+                 |
+                 +--> TASK-ACCEPTED <voice handle> --> natural spoken receipt
+                 |
+                 +--> detach busy ACP child ------> fresh foreground brain
+                 |
+                 +--> original work completes ----> TASK-DONE audit + announcement
+```
+
+The 15-second clock begins when `/turn` receives the transcript and includes ACP acquisition and rotation. At boot the server warms one foreground `hermes -p voice acp` child; it creates a replacement only when the foreground child becomes detached, busy, dead, or stuck. Replacement children skip the extra bootstrap model turn because the application itself enforces the voice contract; this keeps unrelated speech inside the response boundary without permanently attaching two ACP processes to the same profile. Barge-in sends `session/cancel` only to the busy foreground child, waits up to two seconds for `stopReason: cancelled`, and replaces only that child if cancellation does not settle. A speech-start event racing the 15-second boundary detaches the elapsed turn instead of cancelling it. Detached background children are not cancellation targets for unrelated new speech.
+
+The browser serializes say-exactly injections: a completion that arrives while another answer is playing waits for `response.done`. The server keeps a matching FIFO audit receipt so concurrent answers retain the correct question and provenance instead of being mixed or attributed to the latest global turn.
+
+### Where / operate / data and privacy
+
+- Runtime: `talk-server.js`
+- ACP prompt-lane ownership: `src/acp-client.js` (synchronous busy reservation prevents concurrent HTTP turns from sharing one client)
+- Promise boundary: `src/background-turn.js`
+- Regression gate: `tests/m4/t4.test.mjs` and `tests/m4/t4.sh`
+- Browser acceptance rig: `tests/rig/driver.mjs --url https://sudos-imac.tailddc886.ts.net` uses the real HTTPS page, fake Chromium microphone, browser STT, Hermes, and audible TTS; its traffic is explicitly labeled `synthetic test input/output` and must never be attributed to V.
+- Lifecycle evidence: `logs/background-turns.log` (`accepted`, `completed`, `failed`; handle, timing, status, and character count only — no raw user prompt or answer)
+- Existing full conversation record: `logs/voice-audit.log`; permissions and retention are unchanged.
+- Start/recover through `watchdog.sh` under `com.405network.talkserver`; do not run a competing listener.
+- Health: `bash scripts/voice-healthcheck.sh`; deep Azure proof: `VOICE_DEEP=1 bash scripts/voice-healthcheck.sh`.
+
+### Verify, failure behavior, and rollback
+
+Positive verification:
+
+```bash
+node --test tests/m4/t4.test.mjs
+bash tests/m4/t4.sh
+bash scripts/voice-healthcheck.sh
+```
+
+Production proof must cover five distinct end-user browser scenarios: (1) a normal question answers audibly, (2) a successful read-only tool question answers audibly, (3) real work exceeding 15 seconds receives an audible receipt and later announces completion, (4) an unrelated question answers while that task remains active, and (5) a failed or stuck foreground worker produces an audible bounded failure, cancellation/replacement proof, no stale speech, and a successful follow-up. Confirm each scenario across the browser event capture, `turns.log`, `turns-routed.log`, `voice-audit.log`, `background-turns.log`, and `cancel.log`.
+
+**2026-08-07 production qualification:** six HTTPS browser/microphone-path scenarios passed from `https://sudos-imac.tailddc886.ts.net/`; captures are retained under `/tmp/hermes-voice-e2e-20260807T142326Z/finalq-test*-events.json`. The normal answer and read-only terminal answer completed in 8.4s and 11.3s; an 18-second terminal task produced its receipt at 15.0s and announced completion; an unrelated `3 + 3` turn completed in 10.2s while the original task was still active; a failing Hermes command produced a faithful spoken failure in 5.9s; and a deliberately frozen listener-owned ACP child timed out cancellation, was replaced, emitted no stale reply, and answered the follow-up in 12.1s. These are synthetic browser-microphone inputs, not V's speech.
+
+Negative verification: invalid auth must still fail closed with HTTP 403; a failed detached task must record `failed` and speak a short failure notice rather than disappear. A process PID or HTTP 200 alone is not proof.
+
+Safe rollback: revert `talk-server.js`, `src/background-turn.js`, and the M4.T4 test files together, then let the owning watchdog restart the listener. Rollback restores the old prompt-only delegation behavior and therefore reintroduces the known dead-air risk; preserve `background-turns.log` as incident evidence.
+
+### Sources and revision history
+
+- Hermes delegation and ACP constraints: `docs/VOICE-PLATFORM-PLAN.md` sources H9, H10, and A1–A8; official [ACP host integration](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/), [ACP internals](https://hermes-agent.nousresearch.com/docs/developer-guide/acp-internals/), [tool reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference/), and [delegation](https://hermes-agent.nousresearch.com/docs/user-guide/features/delegation).
+- Node.js official documentation, queried through Context7 `/nodejs/node` on 2026-08-06: Promise combinators attach handlers without cancellation; child `exit` and `close` have distinct lifecycle semantics.
+- Live source evidence: `~/.405network/logs/talkserver.log`, lines 1023–1047 from the 2026-08-06 incident.
+- **2026-08-06:** Added deterministic 15s background handoff, detached-ACP continuation delivery, synchronous per-client prompt-lane reservation for concurrent HTTP turns, lifecycle evidence, regression coverage, production verification plan, and rollback instructions because the prompt-only delegation rule allowed a real voice turn to end without an answer or receipt. Restricted sentinel removal to leading protocol tokens so explanatory answers that mention `TASK-ACCEPTED` remain intact.
+- **2026-08-07:** Made the 15-second boundary cover acquisition plus ACP work, added a spoken `voice-<8 hex>` receipt mapped to the ACP session, bounded cancellation verification/replacement, serialized overlapping speech with FIFO audit correlation, and added explicit synthetic/user provenance plus HTTPS browser-rig support. The production server keeps one warm foreground child and starts replacement children only when needed.
 
 ## ELI5 glossary
 

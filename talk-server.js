@@ -17,6 +17,16 @@ import {
 } from "@azure/identity";
 import { getLogger } from "./src/core/logger.js";
 import { AcpClient } from "./src/acp-client.js";
+import {
+  answerProvenanceForQuestion,
+  cancellationNeedsReplacement,
+  formatTaskReceipt,
+  normalizeProvenance,
+  provenanceForTurnPayload,
+  shouldBootstrapBrain,
+  shouldDetachAtBoundary,
+  splitAtThreshold,
+} from "./src/background-turn.js";
 
 const logger = await getLogger("talk-server");
 
@@ -150,47 +160,62 @@ async function getEntraToken() {
   return getBearerTokenProvider(credential, "https://ai.azure.com/.default")();
 }
 
-// ---- The brain: one hermes ACP session for the life of this server ----
+// ---- The brain: one foreground ACP child, replaced only when a turn detaches ----
 let brain = null;
 let brainStarting = null;
+const activeForegroundPrompts = new Map();
 
-async function getBrain() {
-  if (brain && !brain.isAlive()) {
-    logger.warn("Brain child died between turns; respawning");
-    brain = null; // never hand out a corpse
-  }
-  if (brain) return brain;
-  if (brainStarting) return brainStarting;
-  brainStarting = (async () => {
-    const client = new AcpClient({
-      cwd: here,
-      onAnnouncement: (text) => announce(text),
-    });
-    await client.start();
-    const sessionId = await client.newSession();
-    // Delegation contract, sent once per ACP session — AWAITED. Fire-and-forget
-    // collides with the first real turn (hermes answers "Queued for the next
-    // turn") and its reply lands out-of-turn, where the announcement path would
-    // speak the preamble acknowledgement aloud.
+async function createBrain(reason = "between-turn-recovery") {
+  const client = new AcpClient({
+    cwd: here,
+    onAnnouncement: (text) => announce(text, {
+      question: "ACP out-of-turn announcement",
+      questionProvenance: "unknown/needs review",
+      answerProvenance: "assistant-authored",
+    }),
+  });
+  await client.start();
+  const sessionId = await client.newSession();
+  const bootstrap = shouldBootstrapBrain(reason);
+  // The first conversational child receives the application bootstrap. A
+  // replacement created while background work is active skips this extra model
+  // turn so unrelated speech does not pay its latency.
+  if (bootstrap) {
     try {
       await client.prompt(DELEGATION_PREAMBLE);
     } catch (err) {
-      logger.warn("Delegation preamble failed", { error: err.message });
+      logger.warn("Delegation preamble failed", { error: err.message, reason });
     }
-    appendFileSync(
-      join(logsDir, "acp-session.json"),
-      JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() }) + "\n"
-    );
-    // Single-line snapshot the gates read [H3]
-    writeFileSync(
-      join(logsDir, "acp-session.json"),
-      JSON.stringify({ acpSessionId: sessionId, startedAt: new Date().toISOString() })
-    );
+  }
+  writeFileSync(
+    join(logsDir, "acp-session.json"),
+    JSON.stringify({
+      acpSessionId: sessionId,
+      startedAt: new Date().toISOString(),
+      reason,
+      bootstrapProvenance: bootstrap ? "application bootstrap" : "not sent",
+    })
+  );
+  return client;
+}
+
+async function getBrain(reason = "between-turn-recovery") {
+  if (brain && !brain.isAlive()) {
+    logger.warn("Brain child died between turns; respawning");
+    brain = null;
+  }
+  if (brain) return brain;
+  if (brainStarting) return brainStarting;
+  const starting = createBrain(reason).then((client) => {
     brain = client;
-    brainStarting = null;
     return client;
-  })();
-  return brainStarting;
+  });
+  brainStarting = starting;
+  try {
+    return await starting;
+  } finally {
+    if (brainStarting === starting) brainStarting = null;
+  }
 }
 
 // Fillers: spoken while hermes thinks. Out-of-band so they never enter the
@@ -206,6 +231,11 @@ const FILLERS = [
 // so a 1.5s filler fired on nearly every turn and just delayed the answer.
 // Only cover genuinely slow turns (tool use, delegation).
 const FILLER_AFTER_MS = Number(process.env.VOICE_FILLER_MS || 4000);
+// The voice contract is stricter than the model prompt: dead air may never
+// exceed ~15s even when Hermes ignores the delegation preamble and starts
+// foreground research. At this boundary the current ACP session becomes a
+// real background worker and a fresh session is available for new turns.
+const BACKGROUND_AFTER_MS = 15_000;
 let lastFillerIndex = -1;
 
 function nextFiller() {
@@ -231,21 +261,68 @@ function sendFiller() {
 let turnEpoch = 0;
 let lastHermesReply = "";  // for the spoken-vs-said audit
 let lastQuestion = "";
+let lastQuestionProvenance = "unknown/needs review";
 
-export function bargeIn() {
+export async function bargeIn() {
   setUserSpeaking(true);
   // The epoch always advances so a late reply is dropped; the protocol cancel
-  // only goes out when hermes actually has work in flight [A8].
+  // only goes out when the foreground Hermes worker actually has work in
+  // flight [A8]. Detached background workers are intentionally unreachable
+  // here, so a new question cannot cancel unrelated long-running work.
   turnEpoch += 1;
-  const sent = brain ? brain.cancel() : false;
+  let affected = brain?.isBusy() ? brain : null;
+  let detachedAtBoundary = false;
+  const active = affected ? activeForegroundPrompts.get(affected) : null;
+  if (affected && active && shouldDetachAtBoundary(active.startedAt, Date.now(), BACKGROUND_AFTER_MS)) {
+    // A speech-start event can race the 15-second timer by a few milliseconds.
+    // Once the boundary has elapsed, preserve that work as background instead
+    // of cancelling it as if it were still an ordinary foreground turn.
+    detachedAtBoundary = true;
+    activeForegroundPrompts.delete(affected);
+    if (brain === affected) brain = null;
+    void getBrain("background-replacement").catch((err) => {
+      logger.warn("Boundary-race replacement warm-up failed", { error: err.message });
+    });
+  }
+  const outcome = detachedAtBoundary
+    ? { sent: false, completed: true, stopReason: "detached_at_boundary", error: null }
+    : affected
+      ? await affected.cancelAndWait(2_000)
+      : { sent: false, completed: true, stopReason: "not_in_flight", error: null };
   appendFileSync(
     join(logsDir, "cancel.log"),
     JSON.stringify({
       at: new Date().toISOString(),
-      event: sent ? "session/cancel" : "barge-in-noop",
+      event: detachedAtBoundary
+        ? "foreground-detached-at-boundary"
+        : outcome.sent ? "session/cancel-completed" : "barge-in-noop",
       epoch: turnEpoch,
+      sessionId: affected?.sessionId ?? null,
+      completed: outcome.completed,
+      stopReason: outcome.stopReason,
+      error: outcome.error,
     }) + "\n"
   );
+  if (affected && !detachedAtBoundary && cancellationNeedsReplacement(outcome)) {
+    // Cancellation itself is bounded. If ACP does not prove `cancelled`, kill
+    // only that stuck child and warm a replacement; never restart the server.
+    if (brain === affected) brain = null;
+    await affected.stop();
+    appendFileSync(
+      join(logsDir, "cancel.log"),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        event: "stuck-worker-replaced",
+        epoch: turnEpoch,
+        sessionId: affected.sessionId,
+        priorStopReason: outcome.stopReason,
+      }) + "\n"
+    );
+    void getBrain("cancellation-replacement").catch((err) => {
+      logger.warn("Post-cancellation replacement warm-up failed", { error: err.message });
+    });
+  }
+  return outcome;
 }
 
 // Mock brain for timing gates: real hermes latency varies 4-30s, which cannot
@@ -260,6 +337,20 @@ function mockDelayFor(transcript) {
 // finished task is worse than one that waits.
 let userSpeaking = false;
 const announceQueue = [];
+const expectedSpeechQueue = [];
+
+function rememberExpectedSpeech(text, metadata = {}) {
+  expectedSpeechQueue.push({
+    text,
+    question: metadata.question ?? lastQuestion,
+    questionProvenance: normalizeProvenance(
+      metadata.questionProvenance ?? lastQuestionProvenance
+    ),
+    answerProvenance: normalizeProvenance(
+      metadata.answerProvenance ?? "assistant-authored"
+    ),
+  });
+}
 
 function logAnnouncement(event, text) {
   appendFileSync(
@@ -268,12 +359,21 @@ function logAnnouncement(event, text) {
   );
 }
 
-function announce(text) {
+function logBackgroundTurn(event, fields = {}) {
+  const provenance = normalizeProvenance(fields.provenance);
+  appendFileSync(
+    join(logsDir, "background-turns.log"),
+    JSON.stringify({ at: new Date().toISOString(), event, ...fields, provenance }) + "\n"
+  );
+}
+
+function announce(text, metadata = {}) {
   if (userSpeaking) {
-    announceQueue.push(text);
+    announceQueue.push({ text, metadata });
     logAnnouncement("deferred", text);
     return false;
   }
+  if (sseClients.size > 0) rememberExpectedSpeech(text, metadata);
   sseBroadcast({ type: "speak", text: text.slice(0, 4000) });
   logAnnouncement("announced", text);
   return true;
@@ -282,7 +382,10 @@ function announce(text) {
 function setUserSpeaking(speaking) {
   userSpeaking = speaking;
   if (!speaking) {
-    while (announceQueue.length && !userSpeaking) announce(announceQueue.shift());
+    while (announceQueue.length && !userSpeaking) {
+      const pending = announceQueue.shift();
+      announce(pending.text, pending.metadata);
+    }
   }
 }
 
@@ -311,7 +414,10 @@ const SENTINEL_SPEECH = {
   "TASK-DONE": "That's finished.",
   "HANDOFF-SCHEDULED": "I'll send the results over when they land.",
 };
-const SENTINEL_RE = /\b(TASK-ACCEPTED|TASK-RUNNING|TASK-DONE|HANDOFF-SCHEDULED)\b[ \t]*([A-Za-z0-9_-]{4,})?/g;
+// Only a leading protocol token is control syntax. A normal answer may mention
+// `TASK-ACCEPTED` while explaining the contract; stripping that mid-sentence
+// mangles an otherwise valid spoken answer ("returns , continues...").
+const SENTINEL_RE = /^\s*(TASK-ACCEPTED|TASK-RUNNING|TASK-DONE|HANDOFF-SCHEDULED)\b[ \t]*([A-Za-z0-9_-]{4,})?/;
 
 let lastTaskHandle = null;
 
@@ -336,8 +442,10 @@ function speakable(text) {
 }
 
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
-async function routeTurn(transcript) {
+async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
+  const provenance = provenanceForTurnPayload(inputProvenance);
   lastQuestion = transcript;
+  lastQuestionProvenance = provenance;
   const started = Date.now();
   const myEpoch = turnEpoch;
   let fillerAfterMs = null;
@@ -356,8 +464,112 @@ async function routeTurn(transcript) {
       await new Promise((r) => setTimeout(r, delay));
       reply = { text: `MOCK REPLY after ${delay}ms`, stopReason: "end_turn", ms: delay };
     } else {
-      const client = await getBrain();
-      reply = await client.prompt(transcript);
+      let client = null;
+      let backgrounded = false;
+      const handle = `voice-${randomBytes(4).toString("hex")}`;
+      // The 15-second clock wraps acquisition, rotation, and the ACP prompt —
+      // not merely model work after a client happens to be available.
+      const work = (async () => {
+        client = await getBrain();
+        if (client.isBusy()) {
+          // Never queue two independently timed HTTP turns on one ACP prompt
+          // lane. The earlier request keeps this client; the newer request gets
+          // a freshly warmed foreground brain.
+          if (brain === client) brain = null;
+          logger.info("Foreground ACP busy; rotating for concurrent turn", {
+            busySession: client.sessionId,
+          });
+          client = await getBrain("background-replacement");
+        }
+        // If the response boundary elapsed while ACP was still starting, claim
+        // this client as the detached worker before prompting it.
+        if (backgrounded && brain === client) {
+          brain = null;
+          void getBrain("background-replacement").catch((err) => {
+            logger.warn("Replacement voice brain warm-up failed", { error: err.message });
+          });
+        }
+        const prompt = client.prompt(transcript);
+        if (brain === client) {
+          activeForegroundPrompts.set(client, { startedAt: started, epoch: myEpoch });
+        }
+        return prompt.finally(() => {
+          if (activeForegroundPrompts.get(client)?.epoch === myEpoch) {
+            activeForegroundPrompts.delete(client);
+          }
+        });
+      })();
+      const split = await splitAtThreshold(work, BACKGROUND_AFTER_MS);
+      if (!split.background) {
+        reply = split.value;
+        // Another concurrent request may have rotated this client while its
+        // fast answer was still running. It is no longer the reusable brain.
+        if (brain !== client) void client.stop();
+      } else {
+        backgrounded = true;
+        // Detach the busy session before returning the receipt. A subsequent
+        // spoken turn gets a new ACP child instead of queueing behind this work,
+        // and barge-in cannot accidentally cancel the detached task.
+        if (brain === client) brain = null;
+        logBackgroundTurn("accepted", {
+          handle,
+          acpSessionId: client?.sessionId ?? null,
+          after_ms: Date.now() - started,
+          provenance: "server-injected",
+        });
+        // Start the replacement immediately rather than making the user's next
+        // sentence pay ACP initialization + preamble latency.
+        void getBrain("background-replacement").catch((err) => {
+          logger.warn("Replacement voice brain warm-up failed", { error: err.message });
+        });
+
+        void split.continuation
+          .then((completed) => {
+            if (!completed?.text) {
+              throw new Error(`hermes returned no background text (stopReason=${completed?.stopReason ?? "unknown"})`);
+            }
+            logBackgroundTurn("completed", {
+              handle,
+              acpSessionId: client?.sessionId ?? null,
+              task_ms: completed.ms,
+              chars: completed.text.length,
+              stopReason: completed.stopReason,
+              provenance: "assistant-authored",
+            });
+            // Keep the machine sentinel/handle in the audit log, but strip it
+            // at the mouth just like an agent-originated TASK-DONE message.
+            announce(speakable(`TASK-DONE ${handle} ${completed.text}`), {
+              question: transcript,
+              questionProvenance: provenance,
+              answerProvenance: provenance === "synthetic test input"
+                ? "synthetic test output"
+                : "assistant-authored",
+            });
+          })
+          .catch((err) => {
+            logBackgroundTurn("failed", {
+              handle,
+              acpSessionId: client?.sessionId ?? null,
+              error: String(err.message).slice(0, 300),
+              provenance: "tool-generated",
+            });
+            logger.error("Background voice turn failed", { handle, error: err.message });
+            announce("That background task hit a snag, so I couldn't finish it.", {
+              question: transcript,
+              questionProvenance: provenance,
+              answerProvenance: provenance === "synthetic test input"
+                ? "synthetic test output"
+                : "assistant-authored",
+            });
+          })
+          .finally(() => client?.stop());
+
+        reply = {
+          text: `TASK-ACCEPTED ${handle} ${formatTaskReceipt(handle)}`,
+          stopReason: "background",
+          ms: BACKGROUND_AFTER_MS,
+        };
+      }
     }
   } finally {
     clearTimeout(fillerTimer);
@@ -393,6 +605,7 @@ async function routeTurn(transcript) {
     JSON.stringify({
       at: new Date().toISOString(),
       transcript: transcript.slice(0, 500),
+      provenance,
       stopReason: reply.stopReason,
       turn_ms,
       chars: reply.text.length,
@@ -407,6 +620,13 @@ async function routeTurn(transcript) {
   const cleaned = reply.text.replace(/^\s*Ask:\s*[^?\n]{0,200}\?\s*/i, "").trim() || reply.text;
   reply.text = speakable(cleaned);
   lastHermesReply = reply.text;
+  rememberExpectedSpeech(reply.text, {
+    question: transcript,
+    questionProvenance: provenance,
+    answerProvenance: provenance === "synthetic test input"
+      ? "synthetic test output"
+      : "assistant-authored",
+  });
   sseBroadcast({ type: "speak", text: reply.text.slice(0, 4000) });
   return {
     spoken: reply.text, turn_ms, stopReason: reply.stopReason,
@@ -586,7 +806,9 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/barge-in") {
-      bargeIn();
+      void bargeIn().catch((err) => {
+        logger.error("Barge-in cancellation failed", { error: err.message });
+      });
       res.writeHead(204);
       res.end();
       return;
@@ -631,7 +853,13 @@ const server = createServer(async (req, res) => {
           JSON.stringify({ at: new Date().toISOString(), kind: "filler", mouthSpoke: spoken }) + "\n");
         res.writeHead(204); res.end(); return;
       }
-      const expected = lastHermesReply;
+      const expectedReceipt = expectedSpeechQueue.shift() ?? {
+        text: lastHermesReply,
+        question: lastQuestion,
+        questionProvenance: lastQuestionProvenance,
+        answerProvenance: "unknown/needs review",
+      };
+      const expected = expectedReceipt.text;
       // Fidelity: did the mouth read hermes' words, or improvise its own?
       const norm = (t) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
       const a = new Set(norm(expected)), bSet = new Set(norm(spoken));
@@ -646,7 +874,9 @@ const server = createServer(async (req, res) => {
           // Stored in full: this file is the conversation record, not a
           // sample of it. Truncating here left replies unreadable after the
           // browser tab closed — the words existed nowhere else.
-          question: lastQuestion,
+          question: expectedReceipt.question,
+          questionProvenance: expectedReceipt.questionProvenance,
+          answerProvenance: expectedReceipt.answerProvenance,
           hermesSaid: expected,
           mouthSpoke: spoken,
           jaccard,
@@ -677,6 +907,7 @@ const server = createServer(async (req, res) => {
         JSON.stringify({
           item_id: typeof turn.item_id === "string" ? turn.item_id.slice(0, 128) : null,
           transcript: turn.transcript,
+          provenance: provenanceForTurnPayload(turn.provenance),
           receivedAt: Date.now(),
         }) + "\n"
       );
@@ -687,14 +918,20 @@ const server = createServer(async (req, res) => {
 
       if (turn.route === true && turn.transcript.trim()) {
         try {
-          const result = await routeTurn(turn.transcript);
+          const result = await routeTurn(turn.transcript, turn.provenance);
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (err) {
           logger.error("Turn routing failed", { error: err.message });
           // The user is mid-conversation: say something calm rather than
           // leaving dead air, and report RFC 9457 to the caller.
-          sseBroadcast({ type: "speak", text: "I hit a snag reaching my brain — one moment." });
+          announce("I hit a snag reaching my brain — one moment.", {
+            question: turn.transcript,
+            questionProvenance: provenanceForTurnPayload(turn.provenance),
+            answerProvenance: turn.provenance === "synthetic test input"
+              ? "synthetic test output"
+              : "assistant-authored",
+          });
           brain = null; // force a fresh child on the next turn
           res.writeHead(502, { "Content-Type": "application/problem+json" });
           res.end(JSON.stringify({
@@ -725,7 +962,7 @@ const server = createServer(async (req, res) => {
 // Warm the brain at boot: ACP init costs ~30-60s (hermes loads its full MCP
 // tool set), and paying that on the user's first spoken turn is a minute of
 // dead air. Failures here are non-fatal — the next turn retries.
-getBrain()
+getBrain("boot")
   .then((c) => logger.info("Brain warm", { acpSession: c.sessionId }))
   .catch((err) => logger.warn("Brain warm-up failed; will retry on first turn", { error: err.message }));
 

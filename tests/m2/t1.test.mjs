@@ -2,23 +2,20 @@
 // Tests 1 (handshake [A5]), 2 (session isolation [A2]), 3 (no orphans),
 // 5 (destructive permission requests are NOT auto-approved [A9]).
 import { AcpClient } from "../../src/acp-client.js";
-import { execFileSync } from "node:child_process";
 
 let fail = 0;
 const ok = (n, msg) => console.log(`  PASS m2.t1.${n}: ${msg}`);
 const bad = (n, msg) => { console.log(`  FAIL m2.t1.${n}: ${msg}`); fail = 1; };
 
-// execFile with an argument array: no shell, nothing interpolated.
-function acpProcCount() {
+function pidAlive(pid) {
+  if (!Number.isInteger(pid)) return false;
   try {
-    const out = execFileSync("pgrep", ["-f", "hermes acp"], { encoding: "utf8" });
-    return out.split("\n").filter(Boolean).length;
+    process.kill(pid, 0);
+    return true;
   } catch {
-    return 0; // pgrep exits 1 when nothing matches
+    return false;
   }
 }
-
-const baseline = acpProcCount();
 
 // --- Test 1: handshake returns capabilities [A5] ---
 const a = new AcpClient();
@@ -38,11 +35,12 @@ try {
   await b.start();
   const idA = await a.newSession();
   const idB = await b.newSession();
-  const procs = acpProcCount();
-  if (idA && idB && idA !== idB && procs >= baseline + 2) {
-    ok(2, `distinct sessions (${idA.slice(0, 8)}…, ${idB.slice(0, 8)}…), ${procs - baseline} children`);
+  const pidA = a.child?.pid;
+  const pidB = b.child?.pid;
+  if (idA && idB && idA !== idB && pidA !== pidB && pidAlive(pidA) && pidAlive(pidB)) {
+    ok(2, `distinct sessions (${idA.slice(0, 8)}…, ${idB.slice(0, 8)}…) on children ${pidA}, ${pidB}`);
   } else {
-    bad(2, `idA=${idA} idB=${idB} procs=${procs} (baseline ${baseline})`);
+    bad(2, `idA=${idA} idB=${idB} pidA=${pidA} pidB=${pidB}`);
   }
 } catch (err) {
   bad(2, `session/new threw: ${err.message}`);
@@ -80,14 +78,15 @@ try {
 }
 
 // --- Test 3: no orphans within 5s of stop() ---
+const stoppedPids = [a.child?.pid, b.child?.pid].filter(Number.isInteger);
 await a.stop();
 await b.stop();
 let settled = false;
 for (let i = 0; i < 25; i++) {
-  if (acpProcCount() <= baseline) { settled = true; break; }
+  if (stoppedPids.every((pid) => !pidAlive(pid))) { settled = true; break; }
   await new Promise((r) => setTimeout(r, 200));
 }
-settled ? ok(3, `child count returned to ${baseline} within 5s`)
-        : bad(3, `orphaned hermes acp processes (now ${acpProcCount()}, baseline ${baseline})`);
+settled ? ok(3, "both owned ACP child PIDs exited within 5s")
+        : bad(3, `owned ACP child still alive: ${stoppedPids.filter(pidAlive).join(",")}`);
 
 process.exit(fail);

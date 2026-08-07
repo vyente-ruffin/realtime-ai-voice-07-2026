@@ -28,6 +28,8 @@ const watchSecs = Number(arg("watch", "12"));
 const speakFile = arg("speak-file", null);
 const noRoute = arg("noroute", "0") === "1";
 const rotateSecs = arg("rotate-secs", "0");
+const baseUrl = arg("url", "http://localhost:8787").replace(/\/$/, "");
+const browserChannel = arg("channel", "chrome");
 
 if (!wav) {
   logger.error("--wav is required");
@@ -35,6 +37,7 @@ if (!wav) {
 }
 
 const browser = await chromium.launch({
+  channel: browserChannel,
   args: [
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
@@ -45,11 +48,11 @@ const browser = await chromium.launch({
 
 try {
   const context = await browser.newContext();
-  await context.grantPermissions(["microphone"], { origin: "http://localhost:8787" });
+  await context.grantPermissions(["microphone"], { origin: new URL(baseUrl).origin });
   const page = await context.newPage();
 
   await page.goto(
-    `http://localhost:8787/?test=1&puppet=${puppet ? 1 : 0}${noRoute ? "&noroute=1" : ""}` +
+    `${baseUrl}/?synthetic=1&puppet=${puppet ? 1 : 0}${noRoute ? "&noroute=1" : ""}` +
     (rotateSecs !== "0" ? `&rotate_secs=${rotateSecs}` : "")
   );
   await page.click("#startBtn");
@@ -83,7 +86,7 @@ try {
       const before = await page.evaluate(
         () => window.__voiceLabEvents.filter((e) => e.type === "response.done").length
       );
-      const resp = await fetch("http://localhost:8787/speak", {
+      const resp = await fetch(`${baseUrl}/speak`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Voice-Auth": voiceAuth },
         body: JSON.stringify({ text }),
