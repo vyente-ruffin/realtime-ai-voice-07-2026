@@ -1,0 +1,10 @@
+run	metric	guard	status	change	source
+r00	6085	ok	pending	baseline (pre-tuning: high budget, 4096 tokens)	PROGRAM.md - baseline must be the unmodified state
+r01	5988	FAIL:no stall	discard	budget high->low, tokens 4096->2048 (vendor voice preset)	context7 /vectorize-io/hindsight pipecat voice guide 2026-07-17: recall_budget=low, recall_max_tokens=2048
+r02	6061	ok	pending	budget mid (isolate budget from token cap)	context7 /vectorize-io/hindsight best-practices: mid is the default for general reasoning
+r03	5930	ok	pending	tokens 2048->1024 at low budget	context7 /vectorize-io/hindsight 'cap injected context so TTS starts fast' - probe the floor
+r04	5554	ok	pending	drop 'experience' from recall_types	r01 measurement + Hindsight type model: observations are consolidated, experiences are raw episodes
+r05	5722	ok	pending	observations only	r04 result - observations are the distilled layer
+r06	5640	ok	pending	memory_mode hybrid->prefetch	context7 /vectorize-io/hindsight memory_mode: hybrid runs prefetch AND leaves tools armed
+r07	2350	ok	pending	auto_recall off (tools-only recall)	PROGRAM.md Q5 - a filler turn should not pay a full search
+r08	5458	ok	pending	tokens 2048->3072 at low budget	bracket the token cap between the r01 and r03 results
