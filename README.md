@@ -1,6 +1,6 @@
 # 🎙️ Realtime AI Voice — Talk to GPT Realtime on Azure AI Foundry
 
-Build a browser page where you **talk to an AI with your voice and it talks back** — with real interruption ("barge-in"), selectable voices, and no API keys ever touching the browser. Built July 2026 against `gpt-realtime-2.1`, tested end-to-end, including every mistake we hit along the way (documented in [Appendix A](#appendix-a--the-mistakes-we-actually-hit)).
+Build a browser page where you **talk to an AI with your voice and it talks back** — with real interruption ("barge-in"), selectable voices, and no API keys ever touching the browser. Built July 2026 against `gpt-realtime-2.1` (model version `2026-07-07`, `GlobalStandard`, East US 2), tested end-to-end, including every mistake we hit along the way (documented in [Appendix A](#appendix-a--the-mistakes-we-actually-hit)).
 
 > ### 🧠 This repo grew a brain
 >
@@ -182,7 +182,9 @@ The page has a **Session settings** panel — persona presets (assistant, interv
 |---|---|---|
 | `voice` | `marin`, `cedar` (newest/most natural), `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` | The voice. **Locks after the first spoken word** of a session — that's why the page's dropdown disables while live |
 | `interrupt_response` | `true` / `false` | `true` = your speech cuts it off (ChatGPT-style). `false` = it always finishes its sentence |
-| `silence_duration_ms` | e.g. `500` | How long a pause means "your turn is over" |
+| `turn_detection.type` | `server_vad` (**what this repo sends**) / `semantic_vad` | `server_vad` ends your turn after a fixed silence. `semantic_vad` uses a classifier to decide whether the sentence actually sounded finished, and sets the timeout dynamically — so "and, uhh..." doesn't cut you off. Supported on `gpt-realtime` / `gpt-realtime-mini` family, which includes `gpt-realtime-2.1`; verified accepted by this deployment |
+| `eagerness` | `low` / `medium` / `high` / `auto` (default `auto`) | `semantic_vad` only. `high` commits to your turn sooner (lower latency, more risk of cutting you off); `low` waits longer |
+| `silence_duration_ms` | e.g. `500` | `server_vad` only. How long a pause means "your turn is over". This repo sends `500`, so every turn pays a fixed half-second before the brain is even called |
 | `speed` | `0.25`–`1.5` | Talking speed |
 | `instructions` | text | The system prompt |
 | `noise_reduction` | `near_field` / `far_field` | Match your mic: headset vs room/laptop mic |

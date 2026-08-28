@@ -45,7 +45,7 @@ stopped talking. Documented options:
 | Type | Behavior | Model support |
 |---|---|---|
 | `server_vad` | Volume/silence based. **Default.** | all |
-| `semantic_vad` | Classifier decides if the utterance is complete; dynamically extends timeout. Docs: "may have a **higher** latency" | `gpt-realtime`, `gpt-realtime-mini` only |
+| `semantic_vad` | Classifier decides if the utterance is complete; dynamically extends timeout. `eagerness` = `low`/`medium`/`high`/`auto` trades latency against interrupting the user | **supported on our deployment — verified live, see §3.1** |
 | `azure_semantic_vad` / `_multilingual` | Semantic + filler-word removal to cut false barge-in | all models — **Voice Live only** |
 
 Tunables (Voice Live reference, `2026-04-10`): `threshold` (0.5),
@@ -56,8 +56,46 @@ Tunables (Voice Live reference, `2026-04-10`): `threshold` (0.5),
 `timeout_ms` default 1000) is documented as reducing premature end-of-turn
 signals "**without adding user-perceivable latency**".
 
-We currently run `silenceMs: 500` — the documented default. There is no
-free win here; the win is in `azure_semantic_vad` + EOU, both Voice Live.
+### 3.1 CORRECTION (same day) — `semantic_vad` IS available to us
+
+An earlier revision of this document claimed semantic turn detection required
+moving to Voice Live. That was wrong, and it was wrong in the direction that
+costs us a real, in-stack improvement.
+
+`semantic_vad` is an **Azure OpenAI Realtime** turn-detection type
+(`OpenAI.RealtimeTurnDetectionSemanticVad`, with an `eagerness` enum of
+`low`/`medium`/`high`/`auto`), and the docs scope it to `gpt-realtime` and
+`gpt-realtime-mini` — our deployment is `gpt-realtime-2.1`, in that family.
+
+Verified live against our own resource, not inferred. `POST
+/openai/v1/realtime/client_secrets` on `ai103-resource-ruffin`:
+
+```
+server_vad (current)         -> 200, echoed {"type":"server_vad","threshold":0.5,
+                                "prefix_padding_ms":300,"silence_duration_ms":500,
+                                "idle_timeout_ms":null,"create_response":false,
+                                "interrupt_response":true}
+semantic_vad eagerness=high  -> 200, echoed {"type":"semantic_vad","eagerness":"high",
+                                "create_response":false,"interrupt_response":true}
+semantic_vad eagerness=low   -> 200, echoed {"type":"semantic_vad","eagerness":"low",
+                                "create_response":false,"interrupt_response":true}
+```
+
+The server accepts and echoes the config back, so it is not silently dropped.
+
+What still requires Voice Live: `azure_semantic_vad` / `_multilingual`,
+`remove_filler_words`, `end_of_utterance_detection`, and `interim_response`.
+Plain `semantic_vad` does not.
+
+Latency note: the "may have higher latency" caveat in the docs refers to
+`semantic_vad` deliberately *waiting longer* when it scores a low
+probability that you have finished (audio trailing off into "uhhm").
+`eagerness: "high"` biases the opposite way — commit sooner. So this is a
+tunable, not a fixed tax, and `high` is the setting to evaluate for our case.
+
+We currently run `server_vad` with `silence_duration_ms: 500` — a fixed
+half-second wait on **every** turn regardless of whether the sentence sounded
+finished. That fixed wait is the thing `semantic_vad` replaces.
 
 <https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-how-to#conversational-enhancements>
 <https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-api-reference-2026-04-10#components>
@@ -112,14 +150,18 @@ a shortcut around the agent turn.
 1. **Cap recall.** Prompt growth 27k → 47k is ours, not Azure's, and it is the
    only mechanism observed making later turns slower. No doc needed; it is a
    Hermes setting.
-2. **Adopt a documented interim response** rather than the hand-rolled 4 s
+2. **Switch turn detection to `semantic_vad`, `eagerness: "high"`.** In-stack,
+   no migration, verified accepted by our own deployment (§3.1). Replaces a
+   fixed 500 ms wait on every turn with a "did that sound finished?" decision.
+3. **Adopt a documented interim response** rather than the hand-rolled 4 s
    filler. Requires Voice Live (§2).
-3. **`azure_semantic_vad` + EOU** for front-of-turn time and fewer false
-   barge-ins. Requires Voice Live (§3).
-4. **Do not chase realtime model versions for latency.** Microsoft publishes no
+4. **`azure_semantic_vad` + EOU + filler-word removal** for further front-of-turn
+   gains. Requires Voice Live (§3).
+5. **Do not chase realtime model versions for latency.** Microsoft publishes no
    benchmark supporting that, and in puppet mode the realtime model is not on
    the critical path for answer generation.
 
-Open question requiring a decision, not more research: whether to move the
-front end from Azure OpenAI Realtime to Voice Live. Items 2 and 3 are gated on
-it; item 1 is not.
+Items 1 and 2 need nothing from Microsoft and no migration. Items 3 and 4 are
+gated on a decision to move the front end from Azure OpenAI Realtime to Voice
+Live — that decision is the only open question, and it is a decision, not more
+research.
