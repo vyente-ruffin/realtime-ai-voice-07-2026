@@ -108,8 +108,19 @@ def main() -> None:
         else:
             write_cfg(best_cfg)  # revert immediately, before the next idea
 
+    # Leave the system ON the winner, not on whatever ran last. Writing the
+    # config is not enough: it is only read at process start, so the service
+    # must be restarted or it keeps serving the final (usually discarded)
+    # experiment. This bit the first real run of this loop.
     write_cfg(best_cfg)
-    print(f"\nFINAL best: {best_ms} ms")
+    subprocess.run([sys.executable, str(TUNING / "runner.py"), "final",
+                    json.dumps({k: best_cfg.get(k) for k in
+                                ("recall_budget", "recall_max_tokens",
+                                 "recall_types", "memory_mode", "auto_recall")}),
+                    "restart onto winning config", "loop.py finalization"],
+                   timeout=2400, cwd=REPO, check=False)
+
+    print(f"\nFINAL best: {best_ms} ms (service restarted onto it)")
     print(json.dumps({k: best_cfg.get(k) for k in
                       ("recall_budget", "recall_max_tokens", "recall_types",
                        "memory_mode", "auto_recall")}, indent=2))

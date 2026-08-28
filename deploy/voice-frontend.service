@@ -1,0 +1,45 @@
+[Unit]
+# Voice front end for JARVIS. Serves talk.html and routes each spoken turn to
+# `hermes -p voice acp`. Without this unit the service dies with its terminal
+# and does not come back after a reboot.
+Description=JARVIS voice front end (talk-server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/localadmin/homelab/realtime-ai-voice
+
+# Bind on the lab network rather than loopback so the page is reachable from
+# V's laptop. Browsers still require localhost or https for the microphone,
+# hence the SSH tunnel documented in the repo README.
+Environment=HOST=0.0.0.0
+
+# az stores V's login under his home, but this unit does not inherit an
+# interactive shell environment - without this the Azure token mint fails.
+Environment=AZURE_CONFIG_DIR=/home/localadmin/.azure
+# The CLI default subscription belongs to a different tenant than the realtime
+# deployment, so it must be pinned (repo README, Appendix A gotcha #1).
+Environment=AZURE_SUBSCRIPTION_ID=e1e5b742-d76b-4ce5-97d3-8d820bb33904
+Environment=AZURE_OPENAI_ENDPOINT=https://ai103-resource-ruffin.openai.azure.com
+Environment=AZURE_OPENAI_DEPLOYMENT_NAME=gpt-realtime-2.1
+
+# systemd does not inherit the shell PATH, so ~/.local/bin is missing and the
+# server dies at startup with `spawn hermes ENOENT`. Same failure the mini's
+# launchd plist had to work around.
+Environment=PATH=/home/localadmin/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# node lives in ~/.local/bin on this host, NOT /usr/bin. ExecStart needs an
+# absolute path and does not consult PATH, so a wrong path fails with 203/EXEC.
+ExecStart=/home/localadmin/.local/bin/node talk-server.js
+Restart=always
+RestartSec=10
+# The brain takes ~30s to warm (Hermes loads its tool set); don't let a slow
+# start look like a crash loop.
+TimeoutStartSec=120
+
+StandardOutput=append:/home/localadmin/homelab/realtime-ai-voice/logs/talkserver.log
+StandardError=append:/home/localadmin/homelab/realtime-ai-voice/logs/talkserver.log
+
+[Install]
+WantedBy=default.target
