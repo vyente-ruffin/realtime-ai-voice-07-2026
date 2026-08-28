@@ -7,6 +7,15 @@ num() { local v="${1:-}"; [ -n "$v" ] && echo "$v" || echo 0; }
 ok()  { echo "  PASS m4.t3.$1: $2"; }
 bad() { echo "  FAIL m4.t3.$1: $2"; FAIL=1; }
 AUTH="$(curl -s http://localhost:8787/ | sed -n 's/.*voice-auth" content="\([^"]*\)".*/\1/p')"
+REAL_HOME="${HERMES_REAL_HOME:-$HOME}"
+HERMES_ROOT="${HERMES_ROOT:-$REAL_HOME/.hermes}"
+
+if [ -z "${VOICE_INV_CONFIG_SHA_BEFORE:-}" ]; then
+  export VOICE_INV_CONFIG_SHA_BEFORE="$(shasum -a 256 "$HERMES_ROOT/config.yaml" | cut -d ' ' -f 1)"
+  export VOICE_INV_GATEWAY_SHA_BEFORE="$(HERMES_HOME="$HERMES_ROOT" hermes gateway list 2>/dev/null | sort | shasum -a 256 | cut -d ' ' -f 1)"
+  HERMES_HOME="$HERMES_ROOT" hermes doctor >/dev/null 2>&1
+  export VOICE_INV_DOCTOR_EXIT_BEFORE=$?
+fi
 
 # 1. Handoff issued on session end while a task is pending
 : > "$HERE/logs/handoff.log"
@@ -32,7 +41,7 @@ else
 fi
 
 # 3. Clean shutdown: no orphan ACP children, invariants hold
-BEFORE=$(pgrep -f "hermes acp" | wc -l | tr -d ' ')
+BEFORE=$(pgrep -f '/hermes -p voice acp$' | wc -l | tr -d ' ')
 if [ "$BEFORE" -le 2 ] && bash "$HERE/scripts/inv.sh" >/dev/null 2>&1; then
   ok 3 "no orphan children ($BEFORE) and INV-1..3 pass after hang-up"
 else

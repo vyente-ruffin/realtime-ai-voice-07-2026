@@ -5,8 +5,17 @@ HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 FAIL=0
 ok()  { echo "  PASS m2.t1.$1: $2"; }
 bad() { echo "  FAIL m2.t1.$1: $2"; FAIL=1; }
+REAL_HOME="${HERMES_REAL_HOME:-$HOME}"
+HERMES_ROOT="${HERMES_ROOT:-$REAL_HOME/.hermes}"
 
-BEFORE=$(pgrep -f "hermes acp" | wc -l | tr -d ' ')
+if [ -z "${VOICE_INV_CONFIG_SHA_BEFORE:-}" ]; then
+  export VOICE_INV_CONFIG_SHA_BEFORE="$(shasum -a 256 "$HERMES_ROOT/config.yaml" | cut -d ' ' -f 1)"
+  export VOICE_INV_GATEWAY_SHA_BEFORE="$(HERMES_HOME="$HERMES_ROOT" hermes gateway list 2>/dev/null | sort | shasum -a 256 | cut -d ' ' -f 1)"
+  HERMES_HOME="$HERMES_ROOT" hermes doctor >/dev/null 2>&1
+  export VOICE_INV_DOCTOR_EXIT_BEFORE=$?
+fi
+
+BEFORE=$(pgrep -f '/hermes -p voice acp$' | wc -l | tr -d ' ')
 
 # 1-3 + 5 are exercised by the node test (handshake, isolation, no orphans,
 # permission policy); it prints its own PASS/FAIL lines and exits nonzero on
@@ -24,7 +33,7 @@ else
   bad 4 "INV-1 failed right after ACP spawn/kill cycles"
 fi
 
-AFTER=$(pgrep -f "hermes acp" | wc -l | tr -d ' ')
+AFTER=$(pgrep -f '/hermes -p voice acp$' | wc -l | tr -d ' ')
 echo "    (hermes acp processes: before=$BEFORE after=$AFTER)"
 
 exit $FAIL

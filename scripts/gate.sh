@@ -5,6 +5,16 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 N="${1:?usage: gate.sh <milestone-number>}"
 FAIL=0
+REAL_HOME="${HERMES_REAL_HOME:-$HOME}"
+HERMES_ROOT="${HERMES_ROOT:-$REAL_HOME/.hermes}"
+
+# Snapshot the live default Hermes installation before this gate touches the
+# voice stack. Frozen July baselines become stale after legitimate profile or
+# config changes and cannot prove whether this specific run changed anything.
+export VOICE_INV_CONFIG_SHA_BEFORE="$(shasum -a 256 "$HERMES_ROOT/config.yaml" | cut -d ' ' -f 1)"
+export VOICE_INV_GATEWAY_SHA_BEFORE="$(HERMES_HOME="$HERMES_ROOT" hermes gateway list 2>/dev/null | sort | shasum -a 256 | cut -d ' ' -f 1)"
+HERMES_HOME="$HERMES_ROOT" hermes doctor >/dev/null 2>&1
+export VOICE_INV_DOCTOR_EXIT_BEFORE=$?
 
 # Only one gate at a time: concurrent runs fight over port 8787 and over the
 # deployment's concurrent-session limit [MS11], producing false failures.
@@ -27,7 +37,7 @@ export VOICE_ALLOW_MOCK=1
 # server holds an expired Entra token (~1h TTL, see LIVE-6) and answers 502.
 echo "[gate] restarting talk-server with fresh token…"
 lsof -ti:8787 | xargs kill 2>/dev/null
-pkill -f "hermes acp" 2>/dev/null   # reap orphans: they starve new initializes
+pkill -f '/hermes -p voice acp$' 2>/dev/null  # reap exact voice ACP orphans
 sleep 1
 nohup node "$HERE/talk-server.js" > /tmp/talk-server-gate.log 2>&1 &
 sleep 3

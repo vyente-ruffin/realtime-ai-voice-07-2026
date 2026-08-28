@@ -30,6 +30,19 @@ export function answerProvenanceForQuestion(questionProvenance) {
     : "assistant-authored";
 }
 
+// A speech receipt is meaningful only when at least one live SSE browser could
+// receive the corresponding command. Direct/server-only probes must not leave
+// stale expectations for the next real browser utterance.
+export function rememberExpectedSpeechForClients(queue, connectedClients, receipt) {
+  if (!Array.isArray(queue)) throw new TypeError("queue must be an array");
+  if (!Number.isInteger(connectedClients) || connectedClients < 0) {
+    throw new TypeError("connectedClients must be a non-negative integer");
+  }
+  if (connectedClients === 0) return false;
+  queue.push(receipt);
+  return true;
+}
+
 export function cancellationNeedsReplacement(result) {
   return !result?.sent || !result.completed || result.stopReason !== "cancelled";
 }
@@ -42,8 +55,18 @@ export function shouldDetachAtBoundary(startedAtMs, nowMs, thresholdMs) {
     && nowMs - startedAtMs >= thresholdMs;
 }
 
+// A failed request may no longer own the global foreground slot: a concurrent
+// request can already have rotated in a newer brain. Only an empty slot or the
+// exact failed owner may initiate replacement.
+export function failureReplacementNeeded(currentBrain, failedBrain) {
+  return currentBrain == null || currentBrain === failedBrain;
+}
+
 export function shouldBootstrapBrain(reason) {
-  return reason !== "background-replacement" && reason !== "cancellation-replacement";
+  return reason !== "background-replacement"
+    && reason !== "cancellation-replacement"
+    && reason !== "failure-replacement"
+    && reason !== "standby-replacement";
 }
 
 export function taskHandleForSession(sessionId) {

@@ -337,6 +337,78 @@ Negative verification: invalid auth must still fail closed with HTTP 403; a fail
 
 Safe rollback: revert `talk-server.js`, `src/background-turn.js`, and the M4.T4 test files together, then let the owning watchdog restart the listener. Rollback restores the old prompt-only delegation behavior and therefore reintroduces the known dead-air risk; preserve `background-turns.log` as incident evidence.
 
+#### 2026-08-08 failure-replacement addendum
+
+**What / when / why:** An active M2.T2 production-path run at `2026-08-08T09:46Z` killed the listener-owned ACP child and correctly produced the spoken fallback plus HTTP 502, but the immediate `RECOVERY ONLINE` follow-up crossed the 15-second boundary. The error handler only cleared the dead brain; the next request therefore paid for ACP initialization *and* the bootstrap model turn before its own prompt. Recovery was observable but not ready before the next utterance.
+
+**First principles and plan:** A spoken failure is only half of recovery. Replacement must start at the failure boundary, and an application-enforced replacement must not repeat a model bootstrap turn. The smallest repair starts a `failure-replacement` ACP child immediately, reuses the existing `brainStarting` rendezvous for overlapping follow-ups, and leaves boot-time bootstrap behavior unchanged. Failure cleanup is owner-scoped: a stale failed turn cannot clear or replace a newer brain installed by concurrent speech.
+
+```text
+listener-owned ACP dies mid-turn
+          |
+          +--> spoken fallback + HTTP 502
+          |
+          +--> start failure-replacement ACP (no bootstrap model turn)
+                         |
+next speech ------------+--> await same warm-up --> prompt --> spoken answer
+```
+
+**Sources and verification:** Hermes ACP process/session behavior remains as documented in the official ACP host-integration and ACP-internals references above. Node.js `/nodejs/node` documentation was consulted on 2026-08-08 for explicit async rejection handling and child-process signal semantics. Positive verification is the M2.T2 fresh-child follow-up plus shallow/deep health; negative verification is the listener-scoped child termination producing RFC 9457 HTTP 502 with `fallbackSpoken: true`. Roll back this addendum with `/Users/sudo/HermesVoiceBackups/watchdog-followup-20260808T094730Z/ROLLBACK.txt`; restoring it reintroduces next-utterance cold recovery.
+
+#### 2026-08-09 speech-audit queue addendum
+
+**What / when / why:** A production HTTPS browser run at `2026-08-09T00:27Z` spoke the correct `Watchdog Live Path online` response, but `voice-audit.log` paired it with an older server-only `BUS online` turn and marked the mouth as diverged. The server queued every successful `/turn` response as expected speech even when no SSE browser was connected, so direct recovery probes left undeliverable receipts that contaminated the next real browser audit.
+
+**First principles and plan:** An audit receipt can describe audible output only when a live browser was eligible to receive the matching SSE `speak` command. Keep disconnected server-only turns in `turns.log` and `turns-routed.log`, but do not enqueue them for `/spoken` correlation. Centralize that listener-count gate so normal replies, failure announcements, and background completions share the same rule; preserve FIFO order for actually delivered speech.
+
+```text
+server-only /turn, zero SSE clients --> route/log --> no expected-speech receipt
+                                                     |
+live browser connects --> transcript --> Hermes --> SSE speak --> queue receipt
+                                                     |
+                                               POST /spoken
+                                                     |
+                                             faithful audit row
+```
+
+**Sources, verification, and rollback:** Node.js official `/nodejs/node` HTTP documentation was queried through Context7 on 2026-08-09: a response `close` event reflects completion or premature connection termination, so delivery accounting must follow currently connected response objects. Unit verification is `node --test tests/m4/t4.test.mjs`, including the zero-client negative and one-client positive queue cases. Production verification is a disconnected synthetic `/turn` immediately followed by a labeled synthetic HTTPS browser-microphone turn; the browser must transcribe and speak the second phrase, and the newly appended audit row must pair that same question and answer with verdict `faithful`. Roll back with `/Users/sudo/HermesVoiceBackups/watchdog-audit-queue-20260809T003012Z/ROLLBACK.txt`; do not restore port `8443`.
+
+#### 2026-08-09 listener-preserving ACP recovery addendum
+
+**What / when / why:** At `2026-08-09T02:07:03Z`, the active M2.T2 adverse scenario terminated only the port-8787 listener's ACP child. The application immediately started its replacement, but the outer 30-second watchdog sampled the brief childless interval, classified `components=voice_acp`, and killed the otherwise healthy listener. The RFC 9457 failure response succeeded, but the immediate recovery turn was severed and the five-test gate failed. This was a monitor/action race, not an ACP replacement failure.
+
+**First principles and plan:** The application owns individual ACP workers; the outer watchdog owns the whole stack. A single worker failure must therefore get a short opportunity to converge in place, while a persistent missing worker and every listener, local-app, Tailscale, remote-HTTPS, or Azure-token fault must remain fail-closed. The watchdog now gives only the exact isolated `VOICE_HEALTH_FAIL components=voice_acp` state five fast process-presence probes over ten seconds, then requires the complete health gate before accepting recovery. An in-place child recovery preserves the listener; exhaustion, failed full-health confirmation, or any different initial failure takes the unchanged full-stack recovery path.
+
+```text
+listener healthy + ACP child exits
+              |
+              +--> talk-server starts replacement child
+              |
+watchdog sees exact voice_acp-only gap
+              |
+              +--> child returns within <=10s --> preserve listener
+              |
+              +--> still absent / other fault --> full-stack recovery
+```
+
+**Sources and verification:** The GNU Bash reference was queried through Context7 on 2026-08-09 for command substitution, conditional exit status, exact tests, and `pipefail`; the existing official Hermes ACP sources remain authoritative for child/session ownership. Positive verification is `bash tests/watchdog-healthcheck.sh` plus the active M2.T2 failure/replacement scenario proving the listener PID is unchanged and the next turn says `RECOVERY ONLINE`. Negative verification requires a persistent `voice_acp` failure to invoke full recovery after exactly five bounded checks, while a non-ACP failure invokes it immediately. Backup and rollback: `/Users/sudo/HermesVoiceBackups/watchdog-acp-grace-20260809T020824Z/ROLLBACK.txt`. Rollback removes the grace and reintroduces the monitor/action race; it must not alter the Tailscale route or add `:8443`.
+
+#### 2026-08-12 pre-warmed ACP failover addendum
+
+**What / when / why:** An active production M2.T2 run at `2026-08-12T14:39Z` terminated the exact foreground ACP child and correctly returned the spoken RFC 9457 failure fallback, but the replacement process took about 23 seconds to initialize. The immediate `RECOVERY ONLINE` follow-up therefore crossed the 15-second boundary, returned a task receipt, and completed later instead of answering inline. Skipping the bootstrap model turn was insufficient because process and session initialization themselves were cold.
+
+**First principles and plan:** Failure recovery must not depend on optimistic cold-start latency. The listener now owns one active foreground ACP child and one idle, independently initialized failover child. Failure, cancellation replacement, background handoff, or concurrent rotation atomically promotes the ready failover, records its exact PID/session as foreground, and replenishes the standby asynchronously. Only the affected worker is terminated; the listener and sibling survive. The failover receives no bootstrap model turn, carries no user prompt until promoted, and never changes credentials, routes, thresholds, or Hermes installation files.
+
+```text
+                         +--> active foreground ACP -- failure --> stop affected child
+browser speech --> listener                                      |
+                         +--> warm idle ACP <----- promote -------+
+                                  |
+                                  +--> replenish new warm standby
+```
+
+**Sources, verification, and rollback:** The official Hermes ACP host and internals documentation confirms the stdio server, `session/new`, `session/prompt`, per-session agent state, and persisted session lifecycle. Node.js official `/nodejs/node` child-process documentation was queried through Context7 on 2026-08-12: `exit` identifies the direct child lifecycle, while `close` additionally waits for stdio and does not prove descendant termination. Positive verification requires the focused Node regression suite, active M2.T2 foreground-child termination with inline `RECOVERY ONLINE`, unchanged listener PID, two listener-owned ACP children after replenishment, and shallow/deep health. Negative verification requires the killed PID to match the foreground PID recorded by the listener; the test refuses broad or unrelated process termination. Roll back with `/Users/sudo/HermesVoiceBackups/watchdog-hot-standby-20260812T144150Z/ROLLBACK.txt`; rollback restores cold failure recovery and must not add port `8443`.
+
 ### Sources and revision history
 
 - Hermes delegation and ACP constraints: `docs/VOICE-PLATFORM-PLAN.md` sources H9, H10, and A1–A8; official [ACP host integration](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/), [ACP internals](https://hermes-agent.nousresearch.com/docs/developer-guide/acp-internals/), [tool reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference/), and [delegation](https://hermes-agent.nousresearch.com/docs/user-guide/features/delegation).
@@ -344,6 +416,11 @@ Safe rollback: revert `talk-server.js`, `src/background-turn.js`, and the M4.T4 
 - Live source evidence: `~/.405network/logs/talkserver.log`, lines 1023–1047 from the 2026-08-06 incident.
 - **2026-08-06:** Added deterministic 15s background handoff, detached-ACP continuation delivery, synchronous per-client prompt-lane reservation for concurrent HTTP turns, lifecycle evidence, regression coverage, production verification plan, and rollback instructions because the prompt-only delegation rule allowed a real voice turn to end without an answer or receipt. Restricted sentinel removal to leading protocol tokens so explanatory answers that mention `TASK-ACCEPTED` remain intact.
 - **2026-08-07:** Made the 15-second boundary cover acquisition plus ACP work, added a spoken `voice-<8 hex>` receipt mapped to the ACP session, bounded cancellation verification/replacement, serialized overlapping speech with FIFO audit correlation, and added explicit synthetic/user provenance plus HTTPS browser-rig support. The production server keeps one warm foreground child and starts replacement children only when needed.
+- **2026-08-08:** Strengthened lifecycle and failure-injection verification after the watchdog proved the old `hermes acp` process matcher did not match the deployed `hermes -p voice acp` argv. Gates now select the exact voice ACP command, and M2.T2 kills only the current port-8787 listener's direct ACP child before requiring the real `502 application/problem+json` plus spoken fallback path and a successful next turn on a fresh listener-scoped child. Synthetic `/turn` probes are explicitly labeled. The invariant gate now resolves `${HERMES_REAL_HOME}/.hermes`, passes that root explicitly to Hermes, and compares config/doctor/gateway hashes captured before each gate run; this prevents a profile-scoped shell or a legitimately evolved July baseline from producing false evidence while still failing any change made during the run. Qualification log collection is append-only: M2.T2 records the prior `turns-routed.log` line count and evaluates only newly appended telemetry instead of truncating production evidence. This changes no production routing code. Positive verification is `bash tests/m2/t2.sh` followed by normal/deep health; negative verification is the listener-scoped child outage inside M2.T2. Rollback is to restore `tests/m2/t1.sh`, `tests/m2/t2.sh`, `tests/m4/t3.sh`, `scripts/gate.sh`, and `scripts/inv.sh` from the dated pre-change backup.
+- **2026-08-08:** After that adverse gate exposed a real cold-recovery race, the turn-error path now starts a no-bootstrap `failure-replacement` ACP child immediately instead of deferring all initialization to the next utterance. Replacement is tied to the exact failed owner so a stale concurrent error cannot clear a newer foreground brain. M4.T4 locks both invariants; M2.T2 is the production adverse/recovery proof. Backup and rollback: `/Users/sudo/HermesVoiceBackups/watchdog-followup-20260808T094730Z`.
+- **2026-08-09:** Bound expected-speech audit receipts to the live SSE listener count. Server-only recovery probes remain fully logged but can no longer poison the FIFO used to correlate the next browser's `/spoken` receipt. Backup and rollback: `/Users/sudo/HermesVoiceBackups/watchdog-audit-queue-20260809T003012Z`.
+- **2026-08-09:** Added an exact, bounded ten-second watchdog grace for only the transient listener-owned `voice_acp` replacement state. Persistent ACP loss and every other health failure retain full-stack fail-closed recovery. Backup and rollback: `/Users/sudo/HermesVoiceBackups/watchdog-acp-grace-20260809T020824Z`.
+- **2026-08-12:** Added a pre-warmed, listener-owned ACP failover because an active foreground-child termination proved cold process/session initialization could exceed the 15-second follow-up contract even with bootstrap skipped. Foreground state now records the exact PID for scoped adverse testing, promotion preserves the listener, and a fresh standby is replenished after each use. Backup and rollback: `/Users/sudo/HermesVoiceBackups/watchdog-hot-standby-20260812T144150Z`.
 
 ## ELI5 glossary
 

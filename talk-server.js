@@ -20,9 +20,11 @@ import { AcpClient } from "./src/acp-client.js";
 import {
   answerProvenanceForQuestion,
   cancellationNeedsReplacement,
+  failureReplacementNeeded,
   formatTaskReceipt,
   normalizeProvenance,
   provenanceForTurnPayload,
+  rememberExpectedSpeechForClients,
   shouldBootstrapBrain,
   shouldDetachAtBoundary,
   splitAtThreshold,
@@ -160,9 +162,12 @@ async function getEntraToken() {
   return getBearerTokenProvider(credential, "https://ai.azure.com/.default")();
 }
 
-// ---- The brain: one foreground ACP child, replaced only when a turn detaches ----
+// ---- The brain: one foreground ACP child plus one pre-warmed failover ----
 let brain = null;
 let brainStarting = null;
+let standbyBrain = null;
+let standbyStarting = null;
+let standbyRetryTimer = null;
 const activeForegroundPrompts = new Map();
 
 async function createBrain(reason = "between-turn-recovery") {
@@ -174,28 +179,98 @@ async function createBrain(reason = "between-turn-recovery") {
       answerProvenance: "assistant-authored",
     }),
   });
-  await client.start();
-  const sessionId = await client.newSession();
-  const bootstrap = shouldBootstrapBrain(reason);
-  // The first conversational child receives the application bootstrap. A
-  // replacement created while background work is active skips this extra model
-  // turn so unrelated speech does not pay its latency.
-  if (bootstrap) {
-    try {
-      await client.prompt(DELEGATION_PREAMBLE);
-    } catch (err) {
-      logger.warn("Delegation preamble failed", { error: err.message, reason });
+  try {
+    await client.start();
+    await client.newSession();
+    const bootstrap = shouldBootstrapBrain(reason);
+    // The first conversational child receives the application bootstrap. A
+    // replacement created while background work is active skips this extra model
+    // turn so unrelated speech does not pay its latency.
+    if (bootstrap) {
+      try {
+        await client.prompt(DELEGATION_PREAMBLE);
+      } catch (err) {
+        logger.warn("Delegation preamble failed", { error: err.message, reason });
+      }
     }
+    client.voiceBootstrap = bootstrap;
+    client.voiceStartReason = reason;
+    return client;
+  } catch (err) {
+    // A failed initialization must not leave an unowned Hermes child behind;
+    // standby retries would otherwise accumulate processes after each timeout.
+    await client.stop();
+    throw err;
   }
+}
+
+function recordForegroundBrain(client, reason) {
   writeFileSync(
     join(logsDir, "acp-session.json"),
     JSON.stringify({
-      acpSessionId: sessionId,
+      acpSessionId: client.sessionId,
+      pid: client.child?.pid ?? null,
+      role: "foreground",
       startedAt: new Date().toISOString(),
       reason,
-      bootstrapProvenance: bootstrap ? "application bootstrap" : "not sent",
+      bootstrapProvenance: client.voiceBootstrap ? "application bootstrap" : "not sent",
     })
   );
+}
+
+function scheduleStandbyRetry() {
+  if (standbyRetryTimer) return;
+  standbyRetryTimer = setTimeout(() => {
+    standbyRetryTimer = null;
+    void ensureStandbyBrain().catch((err) => {
+      logger.warn("Standby brain warm-up retry failed", { error: err.message });
+    });
+  }, 1_000);
+  standbyRetryTimer.unref();
+}
+
+async function ensureStandbyBrain() {
+  if (standbyBrain && !standbyBrain.isAlive()) standbyBrain = null;
+  if (standbyBrain) return standbyBrain;
+  if (standbyStarting) return standbyStarting;
+
+  const starting = createBrain("standby-replacement").then((client) => {
+    if (!client.isAlive()) throw new Error("standby ACP child exited during warm-up");
+    standbyBrain = client;
+    client.child?.once("exit", () => {
+      if (standbyBrain !== client) return;
+      standbyBrain = null;
+      scheduleStandbyRetry();
+    });
+    logger.info("Standby brain warm", {
+      acpSession: client.sessionId,
+      pid: client.child?.pid ?? null,
+    });
+    return client;
+  });
+  standbyStarting = starting;
+  try {
+    return await starting;
+  } catch (err) {
+    scheduleStandbyRetry();
+    throw err;
+  } finally {
+    if (standbyStarting === starting) standbyStarting = null;
+  }
+}
+
+async function takeStandbyBrain() {
+  if (standbyBrain && !standbyBrain.isAlive()) standbyBrain = null;
+  if (standbyBrain) {
+    const client = standbyBrain;
+    standbyBrain = null;
+    return client;
+  }
+  if (!standbyStarting) return null;
+  const starting = standbyStarting;
+  const client = await starting;
+  if (standbyStarting === starting) standbyStarting = null;
+  if (standbyBrain === client) standbyBrain = null;
   return client;
 }
 
@@ -203,11 +278,20 @@ async function getBrain(reason = "between-turn-recovery") {
   if (brain && !brain.isAlive()) {
     logger.warn("Brain child died between turns; respawning");
     brain = null;
+    reason = "failure-replacement";
   }
   if (brain) return brain;
   if (brainStarting) return brainStarting;
-  const starting = createBrain(reason).then((client) => {
+  const starting = (async () => {
+    let client = shouldBootstrapBrain(reason) ? null : await takeStandbyBrain();
+    if (!client) client = await createBrain(reason);
+    return client;
+  })().then((client) => {
     brain = client;
+    recordForegroundBrain(client, reason);
+    void ensureStandbyBrain().catch((err) => {
+      logger.warn("Standby brain warm-up failed", { error: err.message });
+    });
     return client;
   });
   brainStarting = starting;
@@ -340,7 +424,7 @@ const announceQueue = [];
 const expectedSpeechQueue = [];
 
 function rememberExpectedSpeech(text, metadata = {}) {
-  expectedSpeechQueue.push({
+  return rememberExpectedSpeechForClients(expectedSpeechQueue, sseClients.size, {
     text,
     question: metadata.question ?? lastQuestion,
     questionProvenance: normalizeProvenance(
@@ -373,7 +457,7 @@ function announce(text, metadata = {}) {
     logAnnouncement("deferred", text);
     return false;
   }
-  if (sseClients.size > 0) rememberExpectedSpeech(text, metadata);
+  rememberExpectedSpeech(text, metadata);
   sseBroadcast({ type: "speak", text: text.slice(0, 4000) });
   logAnnouncement("announced", text);
   return true;
@@ -499,7 +583,22 @@ async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
           }
         });
       })();
-      const split = await splitAtThreshold(work, BACKGROUND_AFTER_MS);
+      let split;
+      try {
+        split = await splitAtThreshold(work, BACKGROUND_AFTER_MS);
+      } catch (err) {
+        // A concurrent turn may already own a newer foreground brain. Never let
+        // this stale failure clear or replace that newer owner.
+        if (failureReplacementNeeded(brain, client)) {
+          if (brain === client) brain = null;
+          void getBrain("failure-replacement").catch((recoveryErr) => {
+            logger.warn("Post-failure replacement warm-up failed", {
+              error: recoveryErr.message,
+            });
+          });
+        }
+        throw err;
+      }
       if (!split.background) {
         reply = split.value;
         // Another concurrent request may have rotated this client while its
@@ -932,7 +1031,6 @@ const server = createServer(async (req, res) => {
               ? "synthetic test output"
               : "assistant-authored",
           });
-          brain = null; // force a fresh child on the next turn
           res.writeHead(502, { "Content-Type": "application/problem+json" });
           res.end(JSON.stringify({
             type: "about:blank",
@@ -959,11 +1057,12 @@ const server = createServer(async (req, res) => {
 
 // Loopback-only by default (security review): LAN access goes through an SSH
 // tunnel (which targets localhost). Set HOST=0.0.0.0 explicitly to widen.
-// Warm the brain at boot: ACP init costs ~30-60s (hermes loads its full MCP
-// tool set), and paying that on the user's first spoken turn is a minute of
-// dead air. Failures here are non-fatal — the next turn retries.
+// Warm the foreground and its independent failover at boot. ACP process/session
+// initialization can exceed the 15-second speech boundary under load, so a
+// failure must promote an already-ready child rather than cold-starting one.
+// Failures here are non-fatal — the next turn retries.
 getBrain("boot")
-  .then((c) => logger.info("Brain warm", { acpSession: c.sessionId }))
+  .then((c) => logger.info("Brain warm", { acpSession: c.sessionId, failover: "warming" }))
   .catch((err) => logger.warn("Brain warm-up failed; will retry on first turn", { error: err.message }));
 
 server.listen(PORT, process.env.HOST || "127.0.0.1", () => {

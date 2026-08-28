@@ -4,9 +4,11 @@ import { PromptLane, waitForCancellation } from "../../src/acp-client.js";
 import {
   answerProvenanceForQuestion,
   cancellationNeedsReplacement,
+  failureReplacementNeeded,
   formatTaskReceipt,
   normalizeProvenance,
   provenanceForTurnPayload,
+  rememberExpectedSpeechForClients,
   shouldBootstrapBrain,
   shouldDetachAtBoundary,
   splitAtThreshold,
@@ -130,9 +132,30 @@ test("barge-in at or beyond the response boundary detaches instead of cancelling
   assert.equal(shouldDetachAtBoundary(1_000, 20_000, 15_000), true);
 });
 
-test("replacement brains skip bootstrap so concurrent speech keeps the SLA", () => {
+test("a stale failed turn cannot replace a newer foreground brain", () => {
+  const failed = {};
+  const newer = {};
+  assert.equal(failureReplacementNeeded(failed, failed), true);
+  assert.equal(failureReplacementNeeded(null, failed), true);
+  assert.equal(failureReplacementNeeded(newer, failed), false);
+});
+
+test("replacement brains skip bootstrap so concurrent and failed turns keep the SLA", () => {
   assert.equal(shouldBootstrapBrain("boot"), true);
   assert.equal(shouldBootstrapBrain("between-turn-recovery"), true);
   assert.equal(shouldBootstrapBrain("background-replacement"), false);
   assert.equal(shouldBootstrapBrain("cancellation-replacement"), false);
+  assert.equal(shouldBootstrapBrain("failure-replacement"), false);
+  assert.equal(shouldBootstrapBrain("standby-replacement"), false);
+});
+
+test("speech audit queues only output sent to a connected browser", () => {
+  const queue = [];
+  const disconnected = { text: "not delivered" };
+  const connected = { text: "delivered" };
+
+  assert.equal(rememberExpectedSpeechForClients(queue, 0, disconnected), false);
+  assert.deepEqual(queue, []);
+  assert.equal(rememberExpectedSpeechForClients(queue, 1, connected), true);
+  assert.deepEqual(queue, [connected]);
 });
