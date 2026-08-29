@@ -405,6 +405,17 @@ function handleEvent(event) {
       break;
     case "input_audio_buffer.speech_started":
       setStatus("🎤 Listening…");
+      // Barge-in also invalidates anything still waiting to be spoken. A reply
+      // broadcast before the interrupt sits in speakQueue whenever the mouth is
+      // mid-utterance (usually a filler); response.done would later flush it and
+      // answer the previous question after the new one. The server drops stale
+      // replies by turn epoch — do the same at the mouth so both ends agree.
+      if (speakQueue.length) {
+        window.__voiceLabEvents.push({
+          ts: Date.now(), type: "speak.dropped", count: speakQueue.length,
+        });
+        speakQueue.length = 0;
+      }
       fetch("/barge-in", { method: "POST", headers: authHeaders })
         .catch(() => { /* server down; page keeps working */ });
       break;

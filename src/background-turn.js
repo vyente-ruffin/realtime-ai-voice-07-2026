@@ -43,6 +43,25 @@ export function rememberExpectedSpeechForClients(queue, connectedClients, receip
   return true;
 }
 
+// Barge-in discards pending speech at the mouth as well as at the brain.
+//
+// WHY: the server already refuses to broadcast a reply whose turn epoch is
+// stale (talk-server.js "reply-dropped"), but a reply broadcast *before* the
+// user interrupts can still be sitting in the browser's speakQueue, because
+// speak() defers whenever the mouth is mid-utterance (a filler, typically).
+// response.done then flushes that queue and the answer to the previous
+// question is spoken after the new one — the "one question behind" symptom.
+// Dropping the queue at the same instant the epoch advances keeps the two
+// sides of the pipeline in agreement.
+//
+// Returns the number of discarded utterances so the caller can log it.
+export function dropPendingSpeech(queue) {
+  if (!Array.isArray(queue)) throw new TypeError("queue must be an array");
+  const dropped = queue.length;
+  queue.length = 0;
+  return dropped;
+}
+
 export function cancellationNeedsReplacement(result) {
   return !result?.sent || !result.completed || result.stopReason !== "cancelled";
 }
