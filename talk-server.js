@@ -162,12 +162,9 @@ async function getEntraToken() {
   return getBearerTokenProvider(credential, "https://ai.azure.com/.default")();
 }
 
-// ---- The brain: one foreground ACP child plus one pre-warmed failover ----
+// The brain: exactly one ACP child. No standby, no spare.
 let brain = null;
 let brainStarting = null;
-let standbyBrain = null;
-let standbyStarting = null;
-let standbyRetryTimer = null;
 const activeForegroundPrompts = new Map();
 
 async function createBrain(reason = "between-turn-recovery") {
@@ -218,62 +215,10 @@ function recordForegroundBrain(client, reason) {
   );
 }
 
-function scheduleStandbyRetry() {
-  if (standbyRetryTimer) return;
-  standbyRetryTimer = setTimeout(() => {
-    standbyRetryTimer = null;
-    void ensureStandbyBrain().catch((err) => {
-      logger.warn("Standby brain warm-up retry failed", { error: err.message });
-    });
-  }, 1_000);
-  standbyRetryTimer.unref();
-}
-
-async function ensureStandbyBrain() {
-  if (standbyBrain && !standbyBrain.isAlive()) standbyBrain = null;
-  if (standbyBrain) return standbyBrain;
-  if (standbyStarting) return standbyStarting;
-
-  const starting = createBrain("standby-replacement").then((client) => {
-    if (!client.isAlive()) throw new Error("standby ACP child exited during warm-up");
-    standbyBrain = client;
-    client.child?.once("exit", () => {
-      if (standbyBrain !== client) return;
-      standbyBrain = null;
-      scheduleStandbyRetry();
-    });
-    logger.info("Standby brain warm", {
-      acpSession: client.sessionId,
-      pid: client.child?.pid ?? null,
-    });
-    return client;
-  });
-  standbyStarting = starting;
-  try {
-    return await starting;
-  } catch (err) {
-    scheduleStandbyRetry();
-    throw err;
-  } finally {
-    if (standbyStarting === starting) standbyStarting = null;
-  }
-}
-
-async function takeStandbyBrain() {
-  if (standbyBrain && !standbyBrain.isAlive()) standbyBrain = null;
-  if (standbyBrain) {
-    const client = standbyBrain;
-    standbyBrain = null;
-    return client;
-  }
-  if (!standbyStarting) return null;
-  const starting = standbyStarting;
-  const client = await starting;
-  if (standbyStarting === starting) standbyStarting = null;
-  if (standbyBrain === client) standbyBrain = null;
-  return client;
-}
-
+// One brain, no spare. Owner decision 2026-08-29: the voice front end runs
+// exactly one hermes child, the same as every typed profile. The pre-warmed
+// standby was an unrequested latency optimisation; replacements are now cold-
+// started on demand.
 async function getBrain(reason = "between-turn-recovery") {
   if (brain && !brain.isAlive()) {
     logger.warn("Brain child died between turns; respawning");
@@ -282,16 +227,9 @@ async function getBrain(reason = "between-turn-recovery") {
   }
   if (brain) return brain;
   if (brainStarting) return brainStarting;
-  const starting = (async () => {
-    let client = shouldBootstrapBrain(reason) ? null : await takeStandbyBrain();
-    if (!client) client = await createBrain(reason);
-    return client;
-  })().then((client) => {
+  const starting = createBrain(reason).then((client) => {
     brain = client;
     recordForegroundBrain(client, reason);
-    void ensureStandbyBrain().catch((err) => {
-      logger.warn("Standby brain warm-up failed", { error: err.message });
-    });
     return client;
   });
   brainStarting = starting;
