@@ -463,6 +463,22 @@ function speakable(text) {
   return stripped || SENTINEL_SPEECH[sentinel] || stripped;
 }
 
+// The ACP adapter reports an unhandled agent exception as a normal turn whose
+// entire final_response is "Error: <python message>" (acp_adapter/server.py,
+// "Agent error in session"). That is indistinguishable from a real answer at
+// the JSON-RPC layer, so on 2026-09-01 a crashed brain spoke
+// "Error: 'TurnLivenessWatchdog' object has no attribute 'make_thread'" at the
+// user on every turn for three days. Treat it as a transport failure, not
+// speech: fail the turn loudly and burn the child so the next turn gets a
+// fresh one. Anchored to RFC 9457 problem semantics for the HTTP surface.
+const ACP_INTERNAL_ERROR_RE = /^Error:\s/;
+
+// Health state consumed by GET /healthz. A brain that answers with internal
+// errors is "running" by every process-level check, so liveness has to be
+// judged on turn OUTCOMES, not on the child being alive.
+let consecutiveBrainFailures = 0;
+const BRAIN_UNHEALTHY_AFTER = 2;
+
 // Ears -> brain -> mouth. Returns the spoken text, or throws.
 async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
   const provenance = provenanceForTurnPayload(inputProvenance);
@@ -651,6 +667,33 @@ async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
   logger.info("Turn routed", { turn_ms, stopReason: reply.stopReason, chars: reply.text.length });
   if (!reply.text) throw new Error(`hermes returned no text (stopReason=${reply.stopReason})`);
 
+  // Fail loud rather than speaking a Python traceback at the user. The child is
+  // burned because an adapter-level exception leaves the session in an unknown
+  // state — every subsequent turn on 2026-09-01..09-04 returned the identical
+  // error, proving the failure is sticky and per-child.
+  if (ACP_INTERNAL_ERROR_RE.test(reply.text)) {
+    consecutiveBrainFailures += 1;
+    logger.error("Brain returned an internal adapter error; burning child", {
+      detail: reply.text.slice(0, 300),
+      consecutiveBrainFailures,
+    });
+    const dead = brain;
+    brain = null;
+    void dead?.stop();
+    // A fresh child failing the same way is systemic, not a stuck session.
+    // Fail fast and let systemd (Restart=always) rebuild the whole process —
+    // the standard supervisor contract, rather than serving errors forever.
+    if (consecutiveBrainFailures >= BRAIN_UNHEALTHY_AFTER) {
+      logger.error("Brain unhealthy after replacement; exiting for supervisor restart", {
+        consecutiveBrainFailures,
+      });
+      // Delay so this turn's 502 and the log write reach the client first.
+      setTimeout(() => process.exit(1), 1000).unref();
+    }
+    throw new Error(`hermes adapter error: ${reply.text.slice(0, 300)}`);
+  }
+  consecutiveBrainFailures = 0;
+
   // hermes' memory-recall path prefixes replies with "Ask: <your question>?".
   // Spoken aloud that means hearing your own question read back before the
   // answer, so drop it. Only strips a leading Ask:-line ending in "?".
@@ -691,6 +734,35 @@ const server = createServer(async (req, res) => {
     }
 
     // Everything below is API surface: token required (security review).
+    // Liveness probe. Deliberately UNAUTHENTICATED and ahead of the auth gate:
+    // a supervisor (systemd, curl, an uptime check) must be able to ask "is the
+    // brain answering?" without holding the per-process session token. 200 when
+    // healthy, 503 + RFC 9457 when the brain has failed repeatedly — the shape
+    // systemd/Kubernetes-style probes expect.
+    if (req.method === "GET" && pathname === "/healthz") {
+      const healthy = consecutiveBrainFailures < BRAIN_UNHEALTHY_AFTER;
+      const body = {
+        status: healthy ? "ok" : "degraded",
+        brainAlive: Boolean(brain?.isAlive?.()),
+        consecutiveBrainFailures,
+        uptime_s: Math.round(process.uptime()),
+      };
+      if (healthy) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      } else {
+        res.writeHead(503, { "Content-Type": "application/problem+json" });
+        res.end(JSON.stringify({
+          type: "about:blank",
+          title: "Brain unhealthy",
+          status: 503,
+          detail: `${consecutiveBrainFailures} consecutive adapter errors`,
+          ...body,
+        }));
+      }
+      return;
+    }
+
     if (pathname === "/token" || pathname === "/speak" || pathname === "/turn" || pathname === "/events" || pathname === "/barge-in" || pathname === "/session-end" || pathname === "/spoken" || pathname.startsWith("/test/")) {
       if (!authorized(req, url)) {
         problem(res, 403, "Forbidden", "Missing or invalid voice auth token.");
