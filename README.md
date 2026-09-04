@@ -31,6 +31,35 @@ Build a browser page where you **talk to an AI with your voice and it talks back
 
 ---
 
+## Change log
+
+Append-only, newest at the bottom. Format: date — what changed — why.
+Every behaviour-changing commit adds an entry here (CODER SOUL.md, RULE ZERO-D).
+
+- 2026-09-04 — Change log started. Why: V's standing rule that every artifact
+  carries a What/Why/How/When README whose changes are appended, so the history
+  of a decision is readable without digging through git.
+- 2026-09-04 — `talk-server.js`: an ACP reply beginning `Error: ` is now treated
+  as a transport failure instead of speech — the turn fails with RFC 9457, the
+  ACP child is destroyed, and a second consecutive failure exits the process for
+  systemd to rebuild. Why: the ACP adapter returns an unhandled agent exception
+  as a NORMAL turn whose text is `Error: <python message>`
+  (`acp_adapter/server.py`), which is indistinguishable from a real answer at the
+  JSON-RPC layer. A crashed brain therefore read
+  `'TurnLivenessWatchdog' object has no attribute 'make_thread'` aloud to V on
+  every turn from 2026-09-01 to 2026-09-04 while every process-level check said
+  the service was healthy. Commit 3609f0b.
+- 2026-09-04 — Added unauthenticated `GET /healthz` plus the systemd units
+  `voice-frontend-health.service` / `.timer` (probe every 2 min, restart
+  `voice-frontend.service` on failure). Why: the in-process detector above only
+  fires when a turn COMPLETES; a wedged process completes nothing, so an external
+  prober is the necessary second half of the liveness contract. The endpoint is
+  deliberately unauthenticated because the auth token is minted per-process and a
+  supervisor cannot hold it. Verified by SIGSTOPing the server: the probe failed
+  and the service was restarted automatically.
+
+---
+
 ## WHAT you're building
 
 Two test paths, smallest first:
