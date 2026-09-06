@@ -17,6 +17,7 @@ import {
 } from "@azure/identity";
 import { getLogger } from "./src/core/logger.js";
 import { AcpClient } from "./src/acp-client.js";
+import { startFiller } from "./src/filler-llm.js";
 import {
   answerProvenanceForQuestion,
   cancellationNeedsReplacement,
@@ -252,7 +253,15 @@ const FILLERS = [
 // Raised from 1500ms: with the lean voice profile most replies land in ~2s,
 // so a 1.5s filler fired on nearly every turn and just delayed the answer.
 // Only cover genuinely slow turns (tool use, delegation).
-const FILLER_AFTER_MS = Number(process.env.VOICE_FILLER_MS || 4000);
+// Raised 4000 -> 10000ms on evidence from two 20-turn benches (2026-09-05).
+// Measured latency over 40 identical-question turns ran 1.5s-9.7s with a heavy
+// cluster at 6.0-7.6s, so every lower threshold spoke over the answer: at 4000
+// and 6000ms most fillers were followed by the reply inside 1.5s, and 8000/9000
+// still collided. 10000ms was the lowest value in the sweep with zero
+// collisions. It fires rarely by design — a filler is insurance against real
+// dead air, not a habit. BACKGROUND_AFTER_MS (15s) still bounds the worst case.
+// If turn latency changes, re-derive this from turns-routed.log; do not guess.
+const FILLER_AFTER_MS = Number(process.env.VOICE_FILLER_MS || 10000);
 // The voice contract is stricter than the model prompt: dead air may never
 // exceed ~15s even when Hermes ignores the delegation preamble and starts
 // foreground research. At this boundary the current ACP session becomes a
@@ -268,12 +277,25 @@ function nextFiller() {
   return FILLERS[i];
 }
 
-function sendFiller() {
-  const text = nextFiller();
+// `handle` is the in-flight task-aware filler for this turn (src/filler-llm.js).
+// If its phrase is ready we speak that; otherwise the static list. The answer
+// path never waits on it, so a slow filler model costs nothing.
+function sendFiller(handle = null) {
+  const taskAware = handle?.get?.() ?? null;
+  const text = taskAware || nextFiller();
   sseBroadcast({ type: "filler", text });
   appendFileSync(
     join(logsDir, "fillers.log"),
-    JSON.stringify({ at: new Date().toISOString(), text, conversation: "none", purpose: "filler" }) + "\n"
+    JSON.stringify({
+      at: new Date().toISOString(),
+      text,
+      conversation: "none",
+      purpose: "filler",
+      source: taskAware ? "task-aware" : "static",
+      llm: handle?.state
+        ? { reason: handle.state.reason, ms: handle.state.ms ?? null }
+        : null,
+    }) + "\n"
   );
   return text;
 }
@@ -487,10 +509,14 @@ async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
   const started = Date.now();
   const myEpoch = turnEpoch;
   let fillerAfterMs = null;
+  // Generate the task-aware phrase in parallel with the brain, starting now —
+  // Microsoft's guidance is to trigger on the work starting, not on a timer.
+  // Never awaited: if it is not ready at FILLER_AFTER_MS, the static list wins.
+  const fillerHandle = startFiller(transcript);
   const fillerTimer = setTimeout(() => {
     if (turnEpoch !== myEpoch) return; // user already barged in
     fillerAfterMs = Date.now() - started;
-    sendFiller();
+    sendFiller(fillerHandle);
   }, FILLER_AFTER_MS);
 
   let reply;
@@ -626,6 +652,8 @@ async function routeTurn(transcript, inputProvenance = "unknown/needs review") {
     }
   } finally {
     clearTimeout(fillerTimer);
+    // The turn is over; a phrase still in flight can never be spoken.
+    fillerHandle.cancel?.();
   }
   const turn_ms = Date.now() - started;
 
