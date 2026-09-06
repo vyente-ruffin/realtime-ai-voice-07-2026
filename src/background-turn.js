@@ -95,14 +95,18 @@ export function taskHandleForSession(sessionId) {
   return `voice-${sessionId.slice(0, 8).toLowerCase()}`;
 }
 
-// The spoken acknowledgment intentionally includes the same short application
-// handle persisted in background-turns.log. It is short enough for TTS while
-// still mapping one-to-one to the full ACP session id stored beside it.
+// The spoken acknowledgment must NOT contain the handle. Spoken aloud,
+// "Task handle voice-a4bfddf5" becomes "voice dash a 4 b f d d f 8" — a machine
+// identifier read at the user, which the voice charter explicitly forbids
+// ("Never read an identifier aloud"). V heard it three times in one
+// conversation on 2026-09-05. The handle still travels in the TASK-ACCEPTED
+// sentinel and is persisted in background-turns.log, so status lookups
+// ("is that done?") and the gates still resolve it.
 export function formatTaskReceipt(handle) {
   if (typeof handle !== "string" || !/^voice-[a-f0-9]{8}$/i.test(handle)) {
     throw new TypeError("handle must be a voice- prefixed 8-hex task handle");
   }
-  return `Starting that now. Task handle ${handle}.`;
+  return "Starting that now — I'll let you know when it's done.";
 }
 
 export async function splitAtThreshold(workPromise, thresholdMs) {

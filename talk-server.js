@@ -121,6 +121,29 @@ function authorized(req, url) {
   return true;
 }
 
+// R6: the page bakes in a token minted at process start, so every restart
+// silently kills any tab already open — the request 403s, the page looks dead,
+// and on 2026-09-05 V reported it as an outage while the service was healthy
+// with 23h uptime. The page can now re-fetch the current token and retry once.
+//
+// This is not a security downgrade: the endpoint is reachable only from an
+// allowed origin (same tailnet/localhost origin check as every other route),
+// which is exactly the boundary the token was already trusting. It hands out
+// nothing a same-origin page could not already read from its own HTML.
+function serveAuthRefresh(req, res) {
+  if (!originAllowed(req.headers.origin)) {
+    problem(res, 403, "Forbidden", "Origin not allowed for token refresh.");
+    return;
+  }
+  const body = JSON.stringify({ token: AUTH_TOKEN });
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+  });
+  res.end(body);
+}
+
 // SSE clients for server->browser control messages (M1.T2 /speak relay).
 const sseClients = new Set();
 
@@ -266,8 +289,20 @@ const FILLER_AFTER_MS = Number(process.env.VOICE_FILLER_MS || 10000);
 // exceed ~15s even when Hermes ignores the delegation preamble and starts
 // foreground research. At this boundary the current ACP session becomes a
 // real background worker and a fresh session is available for new turns.
-const BACKGROUND_AFTER_MS = 15_000;
+// Raised 15s -> 25s on 2026-09-05 evidence. Measured against 13 real handoffs,
+// 8 of them (62%) finished in 15.5-22.8s: V heard "starting that now" and then
+// the real answer a few seconds later — a false stall followed by a duplicate.
+// 25s keeps every genuinely long task on the background path (the remaining 5
+// ran 26.6-77.0s) while letting merely-slow lookups finish in the foreground.
+// Re-derive from background-turns.log (accepted.after_ms vs completed.task_ms)
+// rather than guessing if brain latency changes.
+const BACKGROUND_AFTER_MS = 25_000;
 let lastFillerIndex = -1;
+
+// Exact phrases the server has actually spoken as fillers, so /spoken can
+// identify one without guessing. Bounded: only the last few matter, since a
+// filler is reported within seconds of being emitted.
+const recentFillerSpeech = new Set();
 
 function nextFiller() {
   let i;
@@ -283,6 +318,16 @@ function nextFiller() {
 function sendFiller(handle = null) {
   const taskAware = handle?.get?.() ?? null;
   const text = taskAware || nextFiller();
+  // The /spoken audit compares what the mouth said against hermes' reply. A
+  // filler is neither, so it must be recognised and logged as a filler — not
+  // scored as a diverged answer. The old detector matched the five static
+  // openers by regex, which silently broke when task-aware fillers arrived
+  // (2026-09-06: "Noting down Viente now." was audited as DIVERGED). Record
+  // every phrase we actually emit instead of trying to pattern-match it.
+  recentFillerSpeech.add(text.trim());
+  if (recentFillerSpeech.size > 32) {
+    recentFillerSpeech.delete(recentFillerSpeech.values().next().value);
+  }
   sseBroadcast({ type: "filler", text });
   appendFileSync(
     join(logsDir, "fillers.log"),
@@ -761,6 +806,13 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // Token refresh: must sit AHEAD of the auth gate, since the whole point is
+    // that the caller's token is stale (R6). Origin-checked inside.
+    if (req.method === "GET" && pathname === "/auth-refresh") {
+      serveAuthRefresh(req, res);
+      return;
+    }
+
     // Everything below is API surface: token required (security review).
     // Liveness probe. Deliberately UNAUTHENTICATED and ahead of the auth gate:
     // a supervisor (systemd, curl, an uptime check) must be able to ask "is the
@@ -984,8 +1036,12 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/spoken") {
       const body = JSON.parse((await readBody(req)) || "{}");
       const spoken = String(body.spokenText || "");
+      // Static openers stay as a fallback for phrases emitted before this
+      // process started; recentFillerSpeech is the authoritative check.
       const FILLERS = /^(One sec|Let me think|Still with you|Hang on|Give me a beat)/i;
-      if (FILLERS.test(spoken.trim())) {
+      const trimmedSpoken = spoken.trim();
+      if (recentFillerSpeech.has(trimmedSpoken) || FILLERS.test(trimmedSpoken)) {
+        recentFillerSpeech.delete(trimmedSpoken);
         appendFileSync(join(logsDir, "voice-audit.log"),
           JSON.stringify({ at: new Date().toISOString(), kind: "filler", mouthSpoke: spoken }) + "\n");
         res.writeHead(204); res.end(); return;

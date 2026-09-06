@@ -270,6 +270,35 @@ const isSyntheticInput = isTest || urlParams.get("synthetic") === "1";
 const VOICE_AUTH = document.querySelector('meta[name="voice-auth"]').content;
 const authHeaders = { "Content-Type": "application/json", "X-Voice-Auth": VOICE_AUTH };
 
+// R6: the token above was minted when the server started. If the server has
+// restarted since this page loaded, every call 403s and the page looks dead
+// while the service is healthy. Re-fetch the current token and retry once,
+// rather than making V hard-reload a tab that gives no hint it is stale.
+let liveAuth = VOICE_AUTH;
+function currentAuthHeaders() {
+  return { "Content-Type": "application/json", "X-Voice-Auth": liveAuth };
+}
+async function authedFetch(url, options = {}) {
+  const send = (tok) => fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), "Content-Type": "application/json", "X-Voice-Auth": tok },
+  });
+  let res = await send(liveAuth);
+  if (res.status !== 403) return res;
+  try {
+    const refreshed = await fetch("/auth-refresh");
+    if (!refreshed.ok) return res;
+    const { token } = await refreshed.json();
+    if (!token || token === liveAuth) return res;
+    liveAuth = token;
+    logMeta("voice token refreshed after server restart");
+    window.__voiceLabEvents.push({ ts: Date.now(), type: "auth.refreshed" });
+    return await send(liveAuth);
+  } catch {
+    return res;   // refresh unavailable; surface the original 403
+  }
+}
+
 // Injections that arrive before the data channel opens are queued, not
 // dropped — from M2 these carry hermes' actual words.
 const speakQueue = [];
@@ -359,6 +388,38 @@ patienceEl.addEventListener("input", () => {
 });
 
 function setStatus(text) { statusEl.textContent = text; }
+
+// R7: V asked for an audible "I'm live" signal — the green lamp only helps if
+// he is looking at the screen, and he usually is not. Two short ascending
+// sine tones, synthesised in the browser so there is no asset to ship or serve.
+// Deliberately quiet (peak gain 0.12) and ~200ms total: a cue, not an alert.
+// Wrapped so a browser that blocks or lacks WebAudio can never break connect.
+function playReadyChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    // Autoplay policy: this fires inside the click-driven connect path, so the
+    // context is already permitted to start.
+    const now = ctx.currentTime;
+    [[880, 0], [1318.5, 0.11]].forEach(([freq, offset]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.10);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.12);
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 600);
+    window.__voiceLabEvents.push({ ts: Date.now(), type: "ready.chime" });
+  } catch (err) {
+    logMeta("ready chime unavailable: " + err.message);
+  }
+}
 function setLamp(live) {
   lampEl.textContent = live ? "● Live" : "Standby";
   lampEl.classList.toggle("live", live);
@@ -416,7 +477,7 @@ function handleEvent(event) {
         });
         speakQueue.length = 0;
       }
-      fetch("/barge-in", { method: "POST", headers: authHeaders })
+      authedFetch("/barge-in", { method: "POST" })
         .catch(() => { /* server down; page keeps working */ });
       break;
     case "output_audio_buffer.cleared":
@@ -449,9 +510,8 @@ function handleEvent(event) {
       // Ears → server: the transcript is all the brain needs [MS4].
       // Ears -> brain: the server routes this to hermes and pushes the reply
       // back over SSE as a say-exactly injection [A3][MS6].
-      fetch("/turn", {
+      authedFetch("/turn", {
         method: "POST",
-        headers: authHeaders,
         body: JSON.stringify({
           item_id: event.item_id,
           transcript: event.transcript || "",
@@ -478,8 +538,8 @@ function handleEvent(event) {
     case "response.output_audio_transcript.done":
       // Report what was ACTUALLY spoken so the server can compare it against
       // the text hermes produced.
-      fetch("/spoken", {
-        method: "POST", headers: authHeaders,
+      authedFetch("/spoken", {
+        method: "POST",
         body: JSON.stringify({ spokenText: event.transcript || "" }),
       }).catch(() => {});
       currentModelLine = null;
@@ -651,9 +711,8 @@ async function start() {
   settingsBox.disabled = true;
   try {
     setStatus("Minting ephemeral key…");
-    const tokenResp = await fetch("/token", {
+    const tokenResp = await authedFetch("/token", {
       method: "POST",
-      headers: authHeaders,
       body: JSON.stringify({
         voice: voiceSel.value,
         speed: Number(speedEl.value),
@@ -773,6 +832,7 @@ async function start() {
     drawViz();
     setLamp(true);
     setStatus("🟢 Connected — start talking");
+    playReadyChime();
   } catch (err) {
     setStatus("❌ " + err.message);
     logMeta(String(err.stack || err));
@@ -812,8 +872,8 @@ async function sendTyped() {
   addLine("you", "You (typed): " + text);
   window.__voiceLabEvents.push({ ts: Date.now(), type: "typed.sent", text });
   try {
-    await fetch("/turn", {
-      method: "POST", headers: authHeaders,
+    await authedFetch("/turn", {
+      method: "POST",
       body: JSON.stringify({
         item_id: "typed-" + Date.now(),
         transcript: text,

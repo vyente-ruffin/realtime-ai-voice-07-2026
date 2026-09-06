@@ -69,11 +69,14 @@ test("invalid thresholds fail closed", async () => {
   await assert.rejects(splitAtThreshold(Promise.resolve("x"), Number.NaN), /thresholdMs/);
 });
 
-test("spoken long-task receipt includes the real handle", () => {
-  assert.equal(
-    formatTaskReceipt("voice-48e565d6"),
-    "Starting that now. Task handle voice-48e565d6."
-  );
+test("spoken long-task receipt never speaks the handle", () => {
+  // The handle is a machine identifier; spoken aloud it is read out character
+  // by character at the user. It belongs in the sentinel and the log, never in
+  // the mouth. Contract: the receipt validates the handle but must not contain it.
+  const receipt = formatTaskReceipt("voice-48e565d6");
+  assert.ok(!receipt.includes("voice-48e565d6"), `receipt leaked the handle: ${receipt}`);
+  assert.ok(!/handle/i.test(receipt), `receipt mentions "handle": ${receipt}`);
+  assert.ok(receipt.length > 0);
 });
 
 test("application task handle maps deterministically to the full ACP session", () => {
