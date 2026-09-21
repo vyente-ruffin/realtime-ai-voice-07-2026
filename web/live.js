@@ -117,7 +117,7 @@ function quietJobs() {
   lastQuietSnapshot = snapshot;
   append(
     "session.thinking.append",
-    "Silent application state, not a user request. Do not speak, delegate, or repeat completed results because of this update. Use it only if the user asks status. Separate result events request announcements. Task states: " +
+    "Background task states, available when the user asks for status: " +
       snapshot,
   );
 }

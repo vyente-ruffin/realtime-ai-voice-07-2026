@@ -64,3 +64,11 @@ The browser now follows the installed Hermes client's bounded ICE gathering step
 The delegation policy now names Hermes's backend capabilities and follows the native policy's explicit do/check/find/make/fix/run requests, while preserving direct answers from prepared memory. This last prompt refinement has not had another live run; no new benchmark loop was started.
 
 A private phone preview is prepared in `deploy/live-preview/`. Automatic approval review rejected copying personal memory settings, starting the preview, and exposing its new Tailscale route because that personal-data destination and routing change lacked explicit authorization. None of that rejected command ran. The isolated profile created by the preceding approved CLI command exists. Required next input: explicit approval for the private preview at `https://hermesubuntuv1.tailddc886.ts.net:8443/`, followed by actual microphone feedback. Keep production unchanged and do not work around the rejection.
+
+## Resumed local implementation
+
+The preview-route rejection does not block local implementation or isolated validation. Treating it as a blocker for the whole goal was incorrect. The preview remains disabled pending explicit approval; local work continues under the original plan.
+
+A local regression reproduced a memory-context defect: fragments saved in the same clock tick could be reversed, and previous conversations were concatenated without boundaries. Recent context now preserves fragment order, separates statements and sessions, excludes assistant guesses, and labels older requests as history. Quiet task updates now carry state without broad instructions not to speak or delegate. Thirteen focused tests pass.
+
+The unchanged four-question native microphone check on the resulting build answered the greeting and both prepared facts, delegated the calculation once, answered while it ran, and announced the correct 2,870 result once. The task advanced queued → running → completed with no backward status or recorded connection/application error. Evidence: `native-context-check/`, including the recording, raw events, health/build identity and summary. This is one successful end-to-end case, not a substitute for the original acceptance scorecard.

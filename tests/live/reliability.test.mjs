@@ -232,3 +232,25 @@ test("task status stays ordered when updates share a clock tick", (t) => {
   assert.ok(running.updated > queued.updated);
   assert.ok(completed.updated > running.updated);
 });
+
+test("recent memory context preserves corrections and separate conversations in order", (t) => {
+  const { store } = fixture(t);
+  t.mock.method(Date, "now", () => 1000);
+  const c = store.createConversation().id;
+  const add = (session, role, id, delta, start) => store.fragment(c, session, {
+    type: `session.${role}_transcript.delta`, event_id: id, delta,
+    start_ms: start, end_ms: start + 200,
+  });
+  add("s1", "input", "1", "I prefer ", 0);
+  add("s1", "input", "2", "jasmine tea.", 200);
+  add("s1", "output", "3", "Noted.", 400);
+  add("s1", "input", "4", "Actually, I prefer ", 800);
+  add("s1", "input", "5", "green tea now.", 1000);
+  add("s2", "input", "6", "What is my dog's name?", 0);
+  const lines = store.recentUserStatements().split("\n");
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /I prefer jasmine tea\./);
+  assert.match(lines[1], /Actually, I prefer green tea now\./);
+  assert.match(lines[2], /What is my dog's name\?/);
+  assert.doesNotMatch(lines.join("\n"), /Noted/);
+});

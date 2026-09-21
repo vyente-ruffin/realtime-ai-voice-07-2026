@@ -85,16 +85,27 @@ export class VoiceStore {
       .all(conversation, count);
   }
   recentUserStatements() {
-    return this.db
+    const rows = this.db
       .prepare(
-        "SELECT text FROM fragments WHERE role='user' AND at>? ORDER BY at DESC LIMIT 60",
+        "SELECT rowid AS sequence,* FROM fragments WHERE at>? ORDER BY at DESC,rowid DESC LIMIT 400",
       )
       .all(Date.now() - 7 * 86400000)
-      .reverse()
-      .map((x) => x.text)
-      .join("")
-      .slice(-1800);
+      .reverse();
+    const turns = joinedTurns(rows);
+    // The oldest turn may start halfway through a statement at the row limit.
+    if (rows.length === 400) turns.shift();
+    const recent = [];
+    let remaining = 1800;
+    for (const turn of turns.reverse()) {
+      if (turn.role !== "user" || !turn.text.trim()) continue;
+      const line = JSON.stringify(turn.text.trim());
+      if (line.length + 1 > remaining) break;
+      recent.unshift(line);
+      remaining -= line.length + 1;
+    }
+    return recent.join("\n");
   }
+
   jobs(conversation) {
     return this.db
       .prepare(
