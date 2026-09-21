@@ -254,3 +254,22 @@ test("recent memory context preserves corrections and separate conversations in 
   assert.match(lines[2], /What is my dog's name\?/);
   assert.doesNotMatch(lines.join("\n"), /Noted/);
 });
+
+test("memory is called saved only after every user update is durably processed", (t) => {
+  const { store } = fixture(t);
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  const c = store.createConversation().id;
+  const first = store.remember(c, "My preferred tea is jasmine.");
+  const second = store.remember(c, "Actually, it is green tea.");
+  store.memoryState(first, "completed");
+  assert.equal(store.memorySaveStatus(c), "saving");
+  store.memoryState(second, "completed");
+  assert.equal(store.memorySaveStatus(c), "saved");
+  store.fragment(c, "s", {type: "session.input_transcript.delta", event_id: "new", delta: "My dog is Pixel.", start_ms: 0, end_ms: 500});
+  assert.equal(store.memorySaveStatus(c), "saving");
+  now += 4000;
+  store.queueMemory();
+  store.memoryState(store.pendingMemory().id, "failed");
+  assert.equal(store.memorySaveStatus(c), "failed");
+});

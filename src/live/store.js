@@ -250,6 +250,12 @@ export class VoiceStore {
       )
       .run(state, error, Date.now() + delay, id);
   }
+  memorySaveStatus(conversation) {
+    const rows = this.db.prepare("SELECT DISTINCT state FROM retention WHERE conversation=?").all(conversation);
+    if (rows.some((x) => ["failed", "cancelled"].includes(x.state))) return "failed";
+    const unsaved = this.db.prepare("SELECT 1 FROM fragments WHERE conversation=? AND role='user' AND retained=0 LIMIT 1").get(conversation);
+    return unsaved || rows.some((x) => x.state !== "completed") ? "saving" : "saved";
+  }
   memoryHealth() {
     return this.db
       .prepare("SELECT state,COUNT(*) AS count FROM retention GROUP BY state")

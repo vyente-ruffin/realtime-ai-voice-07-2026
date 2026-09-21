@@ -93,14 +93,15 @@ export class VoiceMemory {
           const op = await this.request(`/operations/${item.operation}`);
           if (op.status === "completed") {
             this.store.memoryState(item.id, "completed");
-            this.onState({ conversation: item.conversation, state: "saved" });
-          } else if (["failed", "cancelled"].includes(op.status))
+            this.onState({ conversation: item.conversation, state: this.store.memorySaveStatus(item.conversation) });
+          } else if (["failed", "cancelled"].includes(op.status)) {
             this.store.memoryState(
               item.id,
               "failed",
               "Memory extraction failed; the original conversation remains saved.",
             );
-          else this.store.memoryState(item.id, "submitted", null, 5000);
+            this.onState({ conversation: item.conversation, state: "failed" });
+          } else this.store.memoryState(item.id, "submitted", null, 5000);
         } else {
           this.store.memoryState(item.id, "sending");
           this.onState({ conversation: item.conversation, state: "saving" });

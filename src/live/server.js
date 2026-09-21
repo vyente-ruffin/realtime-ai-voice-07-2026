@@ -38,7 +38,7 @@ const memory = new VoiceMemory({
     process.env.HINDSIGHT_CONFIG_PATH ||
     resolve(process.env.HOME, ".hermes/profiles/voice/hindsight/config.json"),
   modelIds: (
-    process.env.VOICE_MEMORY_MODELS || "v-profile-and-standards,personal,work"
+    process.env.VOICE_MEMORY_MODELS || "jarvis-voice-context"
   )
     .split(",")
     .filter(Boolean),

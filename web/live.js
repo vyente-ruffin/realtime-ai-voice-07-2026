@@ -203,9 +203,12 @@ function openEvents() {
         saving: "Saving memories…",
         saved: "Memories saved",
         pending: "Memory save queued — conversation is kept on this server",
+        failed: "Some memories could not be saved. Your conversation is kept on this server.",
       };
-      memoryStatus.textContent = labels[event.state] || "";
-      if (event.state === "saved")
+      const unsent = transcriptQueue.some((x) => x.conversation === conversation && x.event.type === "session.input_transcript.delta");
+      const state = event.state === "saved" && unsent ? "saving" : event.state;
+      memoryStatus.textContent = labels[state] || "";
+      if (state === "saved")
         append(
           "session.thinking.append",
           "Silent state update, not a request: the queued user statements have completed memory processing. Do not announce this unless asked.",

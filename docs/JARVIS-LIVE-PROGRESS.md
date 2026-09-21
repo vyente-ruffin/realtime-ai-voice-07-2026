@@ -11,6 +11,8 @@ Goal: implement the voice experience plan and scorecard in the current web app; 
 
 ## Checkpoints
 
+Current status after resuming: the implementation includes fast prepared memory, background Hermes jobs, saved conversation history, and a voice-owned Hindsight summary that refreshes through the supported API. All ten scripted corrections were answered correctly in the original and fresh browser conversations. Fourteen focused tests pass. Production rollout and rollback files are prepared but unapplied. Remaining acceptance work is final-build timing, repeated spoken task outcomes, interruptions, reconnect continuity, and the actual 30-minute phone review. The chronological entries below retain earlier results and failures; the current measured status is in `docs/JARVIS-LIVE-SCORECARD.md`.
+
 1. Done: dependency fingerprints, isolated baseline profile/bank, and received-audio browser recorder.
 2. Initial baseline captured: five spoken cases, 4.59–8.28s to first received speech; two seeded facts missed. Full qualification sample still pending.
 3. First implementation running on port 8789: GPT-Live, prepared memory, durable jobs/results, asynchronous retention, permissions, reconnect. Nine focused reliability tests pass. Initial candidate answered both seeded facts correctly in 1.12–1.32s; deeper lookup/work tests in progress.
