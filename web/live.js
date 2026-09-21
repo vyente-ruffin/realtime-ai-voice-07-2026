@@ -24,7 +24,7 @@ let wanted = false,
   retry = 0,
   retryTimer = null,
   muted = false,
-  sending = false,
+  sending = null,
   deliveriesBusy = false;
 let microphoneUntil = 0,
   speakerUntil = 0,
@@ -232,30 +232,37 @@ function openEvents() {
     }
   };
 }
-async function flushTranscript() {
-  if (sending || !conversation || !transcriptQueue.length) return;
-  sending = true;
-  const first = transcriptQueue[0];
-  const group = transcriptQueue
-    .filter(
-      (x) =>
-        x.session === first.session && x.conversation === first.conversation,
-    )
-    .slice(0, 150);
-  try {
-    await api("/api/transcript", {
-      conversation: first.conversation,
-      session: first.session,
-      events: group.map((x) => x.event),
-    });
-    const ids = new Set(group.map((x) => x.id));
-    transcriptQueue = transcriptQueue.filter((x) => !ids.has(x.id));
-    save("jarvis.transcriptOutbox", transcriptQueue);
-  } catch (err) {
-    record("transcript.save.pending", { message: err.message });
-  } finally {
-    sending = false;
-  }
+function flushTranscript() {
+  // Reconnection must await an in-flight save and every older queued session.
+  if (sending) return sending;
+  if (!conversation || !transcriptQueue.length) return Promise.resolve();
+  sending = (async () => {
+    try {
+      while (transcriptQueue.length) {
+        const first = transcriptQueue[0];
+        const group = transcriptQueue
+          .filter(
+            (x) =>
+              x.session === first.session &&
+              x.conversation === first.conversation,
+          )
+          .slice(0, 150);
+        await api("/api/transcript", {
+          conversation: first.conversation,
+          session: first.session,
+          events: group.map((x) => x.event),
+        });
+        const ids = new Set(group.map((x) => x.id));
+        transcriptQueue = transcriptQueue.filter((x) => !ids.has(x.id));
+        save("jarvis.transcriptOutbox", transcriptQueue);
+      }
+    } catch (err) {
+      record("transcript.save.pending", { message: err.message });
+    }
+  })().finally(() => {
+    sending = null;
+  });
+  return sending;
 }
 function transcript(event) {
   const role =
