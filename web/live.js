@@ -106,7 +106,7 @@ function append(type, text, delegation = null, id = crypto.randomUUID()) {
 let lastQuietSnapshot = "";
 let deliveryInFlight = null;
 function quietJobs() {
-  if (!session) return;
+  if (!session || !jobs.size) return;
   const snapshot = JSON.stringify(
     [...jobs.values()]
       .sort((a, b) => b.updated - a.updated)
@@ -500,6 +500,31 @@ async function deliver() {
     deliveriesBusy = false;
   }
 }
+// Match Hermes's native client: include gathered routes in the one-shot offer.
+async function waitForIceGathering(peer) {
+  if (peer.iceGatheringState === "complete") return;
+  await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      peer.removeEventListener("icegatheringstatechange", changed);
+      peer.removeEventListener("connectionstatechange", changed);
+    };
+    const done = () => {
+      cleanup();
+      resolve();
+    };
+    const changed = () => {
+      if (["failed", "closed"].includes(peer.connectionState)) {
+        cleanup();
+        reject(new Error("Voice connection ended before it was ready."));
+      } else if (peer.iceGatheringState === "complete") done();
+    };
+    const timer = setTimeout(done, 10_000);
+    peer.addEventListener("icegatheringstatechange", changed);
+    peer.addEventListener("connectionstatechange", changed);
+    changed();
+  });
+}
 async function start() {
   if (connecting) return;
   connecting = true;
@@ -576,6 +601,8 @@ async function start() {
     const offer = await peer.createOffer();
     if (!current()) return;
     await peer.setLocalDescription(offer);
+    await waitForIceGathering(peer);
+    if (!current()) return;
     const result = await api("/api/live", {
       conversation,
       sdp: peer.localDescription.sdp,
