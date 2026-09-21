@@ -193,13 +193,19 @@ try {
   }
   if (arg("story", null) && arg("interrupt", null)) {
     for (let attempt = 0; attempt < 5; attempt++) {
-      await fixture(arg("story"), `story-${attempt}`);
+      const story = await fixture(arg("story"), `story-${attempt}`);
+      // A backchannel can begin before the recorded request has finished.
+      // Wait for the complete input and sustained reply before interrupting.
       await page.waitForFunction(
-        () => performance.now() - window.__audioProbe.lastSound < 200,
-        null,
+        ({ end }) => {
+          const p = window.__audioProbe;
+          const now = performance.now();
+          return now > end + 1300 && p.lastSound > now - 150 &&
+            p.events.filter(e => e.type === "playback.sample" && e.at > now - 500).length >= 15;
+        },
+        story,
         { timeout: 20000 },
       );
-      await page.waitForTimeout(1300);
       const input = await fixture(arg("interrupt"), `interrupt-${attempt}`);
       await page.waitForTimeout(7000);
       const measured = await page.evaluate((input) => {
@@ -209,20 +215,33 @@ try {
             e.at >= input.start - 100 &&
             e.at <= input.end + 500,
         );
+        const before = samples.filter(e => e.at < input.start).at(-1);
+        if (!before || input.start - before.at > 100)
+          return { yieldMs: null, valid: false, reason: "Assistant was not speaking when interrupted", input, samples: samples.length };
         let last = input.start;
-        for (const sample of samples) {
+        for (const sample of samples.filter(e => e.at >= input.start)) {
           if (sample.at - last > 250)
             return {
               yieldMs: Math.max(0, last - input.start),
+              valid: true,
               input,
               samples: samples.length,
             };
           last = sample.at;
         }
-        return { yieldMs: null, input, samples: samples.length };
+        if (input.end + 500 - last > 250)
+          return { yieldMs: Math.max(0, last - input.start), valid: true, input, samples: samples.length };
+        return { yieldMs: null, valid: true, input, samples: samples.length };
       }, input);
+      measured.passed = measured.valid && measured.yieldMs !== null && measured.yieldMs <= 500;
       report.interruptions.push(measured);
+      if (!measured.passed) {
+        report.failures.push({ kind: "interruption", attempt: attempt + 1, ...measured });
+        process.exitCode = 1;
+      }
+      logger.info("interruption checked", { attempt: attempt + 1, ...measured });
       persist();
+      await page.waitForFunction(() => performance.now() - window.__audioProbe.lastSound > 2000, null, {timeout: 20000});
     }
   }
 } catch (err) {

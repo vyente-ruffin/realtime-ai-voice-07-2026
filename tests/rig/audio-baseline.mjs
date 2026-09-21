@@ -151,5 +151,7 @@ try {
   writeFileSync(join(output, "results.json"), JSON.stringify(report, null, 2), {
     mode: 0o600,
   });
+  if (report.failure || report.captureError || report.shutdownError || report.cases.some(c => c.failed))
+    process.exitCode = 1;
   await browser.close();
 }
