@@ -94,3 +94,7 @@ The personal-memory/worker installation previously existed as manual steps. It i
 ## Prompt aligned with the agreed reference
 
 Restored the official guide's required interruption heading and the two separate delegation-condition headings, as already used by native Hermes. The existing memory and work behavior remains the intended scope. Repeated only the same three spoken work cases and five interruption cases; retained the missed follow-up and timing failures. Build `cef1bf62525899d7` is not deployment-qualified. See the scorecard for results and the official source. No further prompt variants or provider changes were tried.
+
+## Approved personal preview installed
+
+The user explicitly approved installation of `https://hermesubuntuv1.tailddc886.ts.net:8443/` with personal Hindsight memory access. The saved installer ran successfully at 2026-09-21 23:33 UTC. The personal voice summary is ready, the separate Hermes worker is ready, and the preview service and private HTTPS route are active. Original app/profile hashes and existing routes were verified unchanged; no public Funnel was enabled. Build: `cef1bf62525899d7`. Evidence: `/home/localadmin/.local/state/jarvis-voice/install-20260921T233334Z/`. This resolves the preview installation approval; it does not mark the outstanding performance or real-phone acceptance checks passed. No synthetic speech was sent to the personal memory bank.

@@ -50,4 +50,4 @@ Required before production: full latency samples and failure counts; verified un
 - [Hindsight mental models](https://hindsight.vectorize.io/best-practices#mental-models) and the deployed service's OpenAPI schema: prepared context, asynchronous retention, idempotent operation identifiers, and completion polling.
 - [Hermes Voice community app](https://github.com/Cosmekaili-creator/Hermes-Voice): background task/result and phone-session patterns. Its beta status is not treated as production reliability evidence.
 
-Concrete, unapplied cutover and rollback settings are in `deploy/live-production/`; the optional private phone preview remains in `deploy/live-preview/`.
+The approved private phone preview is running at `https://hermesubuntuv1.tailddc886.ts.net:8443/` with personal memories and a separate Hermes worker. Installation records and removal steps are in `deploy/live-preview/`. Production cutover and rollback settings in `deploy/live-production/` remain unapplied; the original acceptance failures are still visible in the scorecard.
