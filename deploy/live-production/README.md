@@ -1,13 +1,15 @@
-# Production cutover — prepared, not applied
+# Current voice version and rollback
 
-Required first: the original scorecard passes, the isolated personal worker and `jarvis-voice-context` summary are prepared, and any active work on the old app or preview has finished. Do not deploy from a dirty or unqualified candidate checkout. Record the candidate commit and `/healthz` build ID with the acceptance results.
+The user requested that the researched build replace the existing app after being told the outstanding speed and interruption failures. The switch completed at 2026-09-21 23:49 UTC. This was an explicit rollout decision; the original acceptance results have not been relabelled as passing.
 
-The saved original unit is `/home/localadmin/voice-implementation-evidence-2026-09-21/release/voice-frontend.service.before`. Its working directory is `/home/localadmin/homelab/realtime-ai-voice`, its entry point is `talk-server.js`, and the recorded revision is `9cf7105813f514553a5057933e3b63e5a3e35639`. There were no existing drop-ins. The original entry point and Azure Realtime deployment remain available.
+The normal address, `https://hermesubuntuv1.tailddc886.ts.net/`, now serves GPT-Live build `cef1bf62525899d7`. Source at cutover: `64b2349a30454d2c0668cd89aa2d311a8867ae1b`. The `voice-frontend.service` drop-in at `~/.config/systemd/user/voice-frontend.service.d/50-jarvis-live.conf` points to this checkout and the existing personal worker/memory configuration. The original unit remains in place. `/docs` is unchanged. The former preview address on port 8443 is an alias to the same service on 8787; its separate service is stopped. Only one service uses the personal state file.
 
-The prepared drop-in changes only the app entry point and voice-specific configuration. Production keeps port 8787 and its existing private HTTPS route. The personal preview and production use the same durable state path, so promotion preserves the user's conversation and tasks. They must not run against that state file concurrently. Synthetic qualification uses a different bank and state file.
+The switch waited for no active jobs and a pause in conversation. The personal SQLite state was backed up and retained: one conversation, 265 transcript fragments, two completed jobs, six completed memory writes and two result-delivery records. The user had already tried this build and received personal answers and background results. Actual phone/Bluetooth/lock-screen acceptance and the original performance targets remain separate requirements.
 
-After acceptance, stop the personal preview, copy `voice-frontend-live.conf` to `/home/localadmin/.config/systemd/user/voice-frontend.service.d/50-jarvis-live.conf`, run `systemctl --user daemon-reload`, then restart `voice-frontend.service`. Verify local and existing HTTPS health and one actual spoken turn. Keep the worktree at the recorded accepted commit. No Tailscale change is required for production.
+Deployment records, original service settings, routes, state backup and health checks: `/home/localadmin/.local/state/jarvis-voice/production-20260921T234934Z/`.
 
-Rollback: remove only the newly installed `50-jarvis-live.conf`, reload user systemd, and restart `voice-frontend.service`. Verify the original entry point and health. The saved original unit is an additional recovery copy; do not reset Git or remove the candidate state file. If the candidate was stopped during work, treat its unfinished actions as needing checking and do not replay them.
+## Rollback
 
-These are prepared instructions. No production configuration has been installed or changed.
+Wait for active work to finish. Stop `voice-frontend.service`, remove only `~/.config/systemd/user/voice-frontend.service.d/50-jarvis-live.conf`, run `systemctl --user daemon-reload`, then start `voice-frontend.service`. The untouched original checkout at `/home/localadmin/homelab/realtime-ai-voice`, commit `9cf7105813f514553a5057933e3b63e5a3e35639`, and its `talk-server.js` entry point will run again on 8787. Verify `/healthz`. Preserve the new state file and all task outcomes; never replay uncertain actions.
+
+If the new build should remain available as a separate preview after rollback, start `voice-live-preview.service` only after the new production process has stopped, and restore only the existing alias using `tailscale serve --bg --https=8443 http://127.0.0.1:8789`. Leave port 443 and `/docs` unchanged. No Hermes or Hindsight source rollback is needed because their source and versions were not changed.

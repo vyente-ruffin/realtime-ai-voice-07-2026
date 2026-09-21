@@ -1,6 +1,6 @@
 # Jarvis live voice candidate
 
-The current web interface now has a GPT-Live connection that can answer from prepared personal memories while Hermes works independently. This is an isolated candidate. Production still runs the original `talk-server.js`.
+The current web interface now has a GPT-Live connection that can answer from prepared personal memories while Hermes works independently. At the user's request, this build now runs as the current app at `https://hermesubuntuv1.tailddc886.ts.net/`. The original entry point and configuration remain available for rollback. Outstanding acceptance failures are recorded in the scorecard.
 
 ## Run and check
 
@@ -50,4 +50,4 @@ Required before production: full latency samples and failure counts; verified un
 - [Hindsight mental models](https://hindsight.vectorize.io/best-practices#mental-models) and the deployed service's OpenAPI schema: prepared context, asynchronous retention, idempotent operation identifiers, and completion polling.
 - [Hermes Voice community app](https://github.com/Cosmekaili-creator/Hermes-Voice): background task/result and phone-session patterns. Its beta status is not treated as production reliability evidence.
 
-The approved private phone preview is running at `https://hermesubuntuv1.tailddc886.ts.net:8443/` with personal memories and a separate Hermes worker. Installation records and removal steps are in `deploy/live-preview/`. Production cutover and rollback settings in `deploy/live-production/` remain unapplied; the original acceptance failures are still visible in the scorecard.
+The current app uses personal memories and a separate Hermes worker. The previous preview address on port 8443 now points to this same service. Deployment and rollback records are in `deploy/live-production/`; the original acceptance failures remain visible in the scorecard.

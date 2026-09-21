@@ -1,6 +1,6 @@
 # Jarvis voice: measured status
 
-Production is unchanged. The candidate does not pass deployment acceptance. This report summarizes existing evidence; it does not replace the original scorecard or relax its targets.
+The user requested production replacement despite the reported acceptance failures. Build `cef1bf62525899d7` became the current app on 2026-09-21 at 23:49 UTC. This report preserves the original targets and failures; the rollout is not a claim that they passed.
 
 ## Final candidate timing comparison
 
@@ -65,3 +65,9 @@ The same three spoken work cases returned the museum answer from available conte
 ## Personal phone preview available
 
 The user-approved personal preview was installed on 2026-09-21 at 23:33 UTC: `https://hermesubuntuv1.tailddc886.ts.net:8443/`. HTTPS health reports build `cef1bf62525899d7`, prepared personal memory and a ready Hermes worker. Original production and profile configuration and existing HTTPS routes remain unchanged. The service is private to Tailscale and has not been enabled for boot. Actual phone audio, Bluetooth, lock-screen behavior and user review remain to be performed; the browser page/health check does not count as those tests.
+
+## Actual user session and requested rollout
+
+The user tried the personal preview, received answers about their profile and projects, and asked for background lookups. Two actual jobs completed in 44.0 and 23.0 seconds. The first recorded conversation includes a reply while the first lookup was still running, followed by its result. Six memory writes completed; no app warning/error was recorded for that session. This is actual-session functional evidence, not a controlled audio-latency measurement or complete phone acceptance.
+
+At the user's request, the same build replaced the old app at its normal address. The original source checkout/settings remain available for rollback. Conversation, fragments, jobs, memory writes and delivery records were preserved and counted before/after. The prior preview URL remains an alias. Deployment checks and state backup are in `/home/localadmin/.local/state/jarvis-voice/production-20260921T234934Z/`.

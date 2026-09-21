@@ -1,8 +1,10 @@
-# Private phone preview — installed
+# Private preview — promoted to the normal app
 
-Live private URL: `https://hermesubuntuv1.tailddc886.ts.net:8443/`.
+Existing preview alias: `https://hermesubuntuv1.tailddc886.ts.net:8443/`.
 
-This preview uses the existing web app with the new voice implementation. It has a separate Hermes worker profile and local state file. It reads the existing personal Hindsight bank through its supported interface and saves the user's actual new conversation there. Qualification audio and fictional memories are excluded. The normal voice app on port 443/8787 and the `/docs` route remain as they are.
+The preview was promoted at the user's request on 2026-09-21 at 23:49 UTC. The normal address is now `https://hermesubuntuv1.tailddc886.ts.net/`. Port 8443 points to the same service on 8787, and `voice-live-preview.service` is stopped. Use `deploy/live-production/README.md` for current deployment and rollback instructions. The installation history below describes the earlier separate preview.
+
+The preview used the existing web app with the new voice implementation. It has a separate Hermes worker profile and local state file. It reads the existing personal Hindsight bank through its supported interface and saves the user's actual new conversation there. Qualification audio and fictional memories are excluded. The normal voice app on port 443/8787 and the `/docs` route remain as they are.
 
 The user explicitly approved this exact private preview and personal-memory access on 2026-09-21. It was installed at 23:33 UTC using `npm run setup:live -- --install`. The isolated worker profile and personal `jarvis-voice-context` summary are prepared, `voice-live-preview.service` is active, and the private HTTPS route is live. The original app, original profile configuration and existing routes remain unchanged. No public Funnel was enabled. Hermes and Hindsight source remain unchanged. The earlier automatic-approval rejection is resolved by this explicit approval. Installation records are in `/home/localadmin/.local/state/jarvis-voice/install-20260921T233334Z/`.
 
