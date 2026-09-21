@@ -1,5 +1,7 @@
 # 🎙️ Realtime AI Voice — Talk to GPT Realtime on Azure AI Foundry
 
+The September 2026 Jarvis candidate keeps this web app and adds direct GPT-Live conversation, prepared Hindsight memories, and separately tracked Hermes work. It is under qualification; production remains on the original entry point. See [the candidate and its validation limits](docs/JARVIS-LIVE.md) and [current progress](docs/JARVIS-LIVE-PROGRESS.md). The tutorial and earlier gate history below describe the original Realtime implementation.
+
 Build a browser page where you **talk to an AI with your voice and it talks back** — with real interruption ("barge-in"), selectable voices, and no API keys ever touching the browser. Built July 2026 against `gpt-realtime-2.1` (model version `2026-07-07`, `GlobalStandard`, East US 2), tested end-to-end, including every mistake we hit along the way (documented in [Appendix A](#appendix-a--the-mistakes-we-actually-hit)).
 
 > ### 🧠 This repo grew a brain
@@ -57,6 +59,8 @@ Every behaviour-changing commit adds an entry here (CODER SOUL.md, RULE ZERO-D).
   deliberately unauthenticated because the auth token is minted per-process and a
   supervisor cannot hold it. Verified by SIGSTOPing the server: the probe failed
   and the service was restarted automatically.
+
+- 2026-09-21 — Added an isolated GPT-Live entry point in the existing web app, prepared memories, persistent jobs and results, asynchronous memory saving, permissions, reconnect handling, and real received-audio qualification. Why: conversation must stay fast while Hermes works. Source/version integrity, phone acceptance, and the full scorecard remain deployment gates. See `docs/JARVIS-LIVE.md`.
 
 ---
 

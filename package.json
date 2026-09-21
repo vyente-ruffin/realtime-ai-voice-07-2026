@@ -11,7 +11,9 @@
     "gate:m2": "bash scripts/gate.sh 2",
     "gate:m3": "bash scripts/gate.sh 3",
     "gate:m4": "bash scripts/gate.sh 4",
-    "gate:m5": "bash scripts/gate.sh 5"
+    "gate:m5": "bash scripts/gate.sh 5",
+    "start:live": "node src/live/server.js",
+    "test:live": "node --test tests/live/*.test.mjs"
   },
   "keywords": [],
   "author": "",

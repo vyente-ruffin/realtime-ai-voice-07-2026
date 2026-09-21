@@ -8,3 +8,6 @@ nohup.out
 tests/baseline/*
 !tests/baseline/.gitkeep
 logs/
+
+# Also ignore an external dependency-directory symlink in isolated worktrees.
+/node_modules
