@@ -177,6 +177,7 @@ function renderJobs() {
 }
 function updateJob(job) {
   const before = jobs.get(job.id);
+  if (before && job.updated < before.updated) return;
   jobs.set(job.id, job);
   renderJobs();
   if (!before || before.updated !== job.updated) {

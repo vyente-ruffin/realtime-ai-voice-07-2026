@@ -83,7 +83,13 @@ function problem(res, status, title, retryAfterMs = 0) {
     "Cache-Control": "no-store",
   });
   res.end(
-    JSON.stringify({ type: "about:blank", status, title, detail: title }),
+    JSON.stringify({
+      type: "about:blank",
+      status,
+      title,
+      detail: title,
+      ...(retryAfterMs > 0 ? { retryAfterMs } : {}),
+    }),
   );
 }
 function allowed(origin) {

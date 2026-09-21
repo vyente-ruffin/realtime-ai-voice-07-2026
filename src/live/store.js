@@ -136,7 +136,7 @@ export class VoiceStore {
   updateJob(id, state, { result = null, error = null } = {}) {
     this.db
       .prepare(
-        "UPDATE jobs SET state=?,result=COALESCE(?,result),error=?,updated=? WHERE id=?",
+        "UPDATE jobs SET state=?,result=COALESCE(?,result),error=?,updated=MAX(updated+1,?) WHERE id=?",
       )
       .run(state, result, error, Date.now(), id);
     return this.job(id);
@@ -144,7 +144,7 @@ export class VoiceStore {
   recover() {
     this.db
       .prepare(
-        "UPDATE jobs SET state='interrupted',error='The voice service restarted during this work. Its outcome needs checking; it was not run again.',updated=? WHERE state IN ('running','awaiting_permission')",
+        "UPDATE jobs SET state='interrupted',error='The voice service restarted during this work. Its outcome needs checking; it was not run again.',updated=MAX(updated+1,?) WHERE state IN ('running','awaiting_permission')",
       )
       .run(Date.now());
     this.db

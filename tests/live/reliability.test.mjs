@@ -221,3 +221,14 @@ test("a personal conversation and its jobs follow the user to another device", (
   assert.equal(phone.id, desktop.id);
   assert.equal(store.jobs(phone.id)[0].id, task.id);
 });
+
+test("task status stays ordered when updates share a clock tick", (t) => {
+  const { store } = fixture(t);
+  t.mock.method(Date, "now", () => 1000);
+  const c = store.createConversation().id;
+  const queued = job(store, c);
+  const running = store.updateJob(queued.id, "running");
+  const completed = store.updateJob(queued.id, "completed", { result: "42" });
+  assert.ok(running.updated > queued.updated);
+  assert.ok(completed.updated > running.updated);
+});
