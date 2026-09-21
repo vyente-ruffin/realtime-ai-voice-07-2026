@@ -8,6 +8,7 @@ WorkingDirectory=/home/localadmin/homelab/realtime-ai-voice-live
 ExecStart=/home/localadmin/.local/bin/node src/live/server.js
 Environment="PATH=/home/localadmin/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment=PORT=8789
+Environment=HOST=127.0.0.1
 Environment=HERMES_VOICE_PROFILE=voice-live-preview
 Environment=HINDSIGHT_CONFIG_PATH=/home/localadmin/.hermes/profiles/voice-live-preview/hindsight/config.json
 Environment=VOICE_MEMORY_MODELS=jarvis-voice-context

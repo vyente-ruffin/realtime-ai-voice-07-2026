@@ -6,6 +6,10 @@ This preview uses the existing web app with the new voice implementation. It has
 
 Automatic approval review rejected copying the personal memory configuration, starting this preview service, and adding the private HTTPS route. Its reason was that personal data exposure to the new network destination and the persistent route lacked explicit authorization. The preview has not been started or exposed. The supported CLI already created the isolated `voice-live-preview` profile; its memory configuration and worker-role hint still need preparation after approval. Hermes and Hindsight source remain unchanged.
 
+## Built setup command
+
+`npm run setup:live -- --check` checks local prerequisites without modifying profiles, memories, services or routes. `npm run setup:live -- --install` performs the preparation and private-preview installation below, verifies that existing routes and the original profile remain unchanged, and records the installation in `~/.local/state/jarvis-voice/`. It does not enable boot startup or replace production. A readiness/route failure stops the preview and removes only the route it added. The existing personal-data destination approval requirement still applies to `--install`; packaging this command does not grant that approval.
+
 ## After explicit approval
 
 1. Set the isolated profile's `agent.environment_hint` to the background-worker contract used by the voice app, with no qualification persona. Copy the existing voice profile's Hindsight configuration to this isolated profile with mode 0600. Keep the original files unchanged.

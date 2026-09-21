@@ -13,7 +13,8 @@
     "gate:m4": "bash scripts/gate.sh 4",
     "gate:m5": "bash scripts/gate.sh 5",
     "start:live": "node src/live/server.js",
-    "test:live": "node --test tests/live/*.test.mjs"
+    "test:live": "node --test tests/live/*.test.mjs",
+    "setup:live": "bash deploy/live-preview/install.sh"
   },
   "keywords": [],
   "author": "",

@@ -86,3 +86,7 @@ The offline close regression fails on the previous code and passes with the fix,
 ## Requested scope-only acceptance run
 
 Reused the existing older-memory, background-work, follow-up and five interruption cases on build `768d6764e3d31a33`. Correct memory/task answers were recorded, but timing acceptance failed. Corrected the existing interruption runner's overlapping input and made recorded failures produce a failing process exit. No product or upstream code was changed. Results and remaining failures are in `JARVIS-LIVE-SCORECARD.md`, with recordings in `agreed-build-work/` and `agreed-build-interruptions/`. The isolated service is stopped; production is unchanged.
+
+## Original-build setup packaged
+
+The personal-memory/worker installation previously existed as manual steps. It is now implemented in `deploy/live-preview/install.sh` and exposed as `npm run setup:live`. Its default/check mode is read-only. The explicit installation mode uses the supported Hermes CLI and existing Hindsight memory-preparation command, installs the prepared private preview, checks readiness, verifies original configuration and routes, and stops/removes its preview on installation failure. It does not replace production. The script was syntax-checked, its local prerequisite check passed, and the service definition passed systemd validation. The installation mode has not been executed; the recorded destination approval remains unresolved. No voice performance or product behavior was changed during this build step.

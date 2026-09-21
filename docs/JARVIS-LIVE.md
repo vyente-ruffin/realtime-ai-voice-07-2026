@@ -4,7 +4,7 @@ The current web interface now has a GPT-Live connection that can answer from pre
 
 ## Run and check
 
-Use Node 26 or later and the repository's installed dependencies. `npm run start:live` starts `src/live/server.js`; `npm run test:live` runs the focused tests without touching production. Settings are listed in `.env.live.example`. Azure uses the existing signed-in CLI identity and an explicit subscription. Cloud credentials never reach the browser.
+Use Node 26 or later and the repository's installed dependencies. `npm run start:live` starts `src/live/server.js`; `npm run test:live` runs the focused tests without touching production. Settings are listed in `.env.live.example`. `npm run setup:live -- --check` checks the packaged personal setup; the explicit `--install` mode prepares the separate worker and personal summary, then installs the existing private-preview configuration. Its destination approval and usage are recorded in `deploy/live-preview/README.md`. Azure uses the existing signed-in CLI identity and an explicit subscription. Cloud credentials never reach the browser.
 
 The live server serves the existing `talk.html` markup and styles with `web/live.js`. It does not require rewriting or replacing the web app. The old entry point remains available for rollback.
 
