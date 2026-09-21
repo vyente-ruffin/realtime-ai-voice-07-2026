@@ -230,6 +230,12 @@ try {
   process.exitCode = 1;
 } finally {
   try {
+    if (await page.locator("#stopBtn").isEnabled()) {
+      await page.click("#stopBtn");
+      await page.waitForFunction(() => !document.getElementById("startBtn").disabled, null, {timeout: 17000});
+    }
+  } catch (err) { report.failures.push({kind: "close", message: err.message}); }
+  try {
     const recording = await page.evaluate(() => window.__audioProbe.export());
     const pcm = Buffer.from(recording.pcm, "base64");
     const h = Buffer.alloc(44);

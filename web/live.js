@@ -23,6 +23,7 @@ let wanted = false,
   connecting = false,
   retry = 0,
   retryTimer = null,
+  closeTimer = null,
   muted = false,
   sending = null,
   deliveriesBusy = false;
@@ -529,7 +530,7 @@ async function waitForIceGathering(peer) {
   });
 }
 async function start() {
-  if (connecting) return;
+  if (connecting || closeTimer) return;
   connecting = true;
   wanted = true;
   const epoch = ++connectEpoch;
@@ -591,15 +592,20 @@ async function start() {
     const channel = peer.createDataChannel("oai-events");
     dc = channel;
     channel.onmessage = (e) => {
-      if (!current()) return;
+      if (epoch !== connectEpoch) return;
       try {
-        void handle(JSON.parse(e.data)).catch(showError);
+        const event = JSON.parse(e.data);
+        if (!wanted && event.type !== "session.closed") return;
+        void handle(event).catch(showError);
       } catch (err) {
         showError(err);
       }
     };
     channel.onclose = () => {
-      if (current()) reconnect();
+      if (epoch !== connectEpoch) return;
+      record("connection.channel.closed", { requested: !wanted });
+      if (wanted) reconnect();
+      else teardown();
     };
     const offer = await peer.createOffer();
     if (!current()) return;
@@ -654,6 +660,8 @@ async function start() {
 }
 
 function teardown() {
+  clearTimeout(closeTimer);
+  closeTimer = null;
   connectEpoch++;
   connecting = false;
   source?.close();
@@ -745,10 +753,26 @@ $("stopBtn").onclick = () => {
   wanted = false;
   clearTimeout(retryTimer);
   retryTimer = null;
-  send({ type: "session.close", event_id: crypto.randomUUID() });
+  source?.close();
+  source = null;
+  mic?.getTracks().forEach((track) => track.stop());
+  audio.pause();
   void flushTranscript();
-  teardown();
+  $("stopBtn").disabled = true;
+  $("muteBtn").disabled = true;
   status("Conversation ended. Background tasks remain available.");
+  // Match Hermes's native client: allow session.closed before closing transport.
+  closeTimer = setTimeout(() => {
+    record("connection.close.timeout");
+    teardown();
+  }, 15000);
+  try {
+    if (send({ type: "session.close", event_id: crypto.randomUUID() })) {
+      record("connection.close.requested");
+      return;
+    }
+  } catch {}
+  teardown();
 };
 $("muteBtn").onclick = () => setMuted(!muted);
 $("sendBtn").onclick = () => void typed().catch(showError);
