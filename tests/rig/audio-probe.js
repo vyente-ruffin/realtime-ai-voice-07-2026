@@ -113,6 +113,7 @@ export function installAudioProbe() {
       raw += String.fromCharCode(...bytes.subarray(i, i + 16384));
     return {
       events: probe.events,
+      timeOrigin: performance.timeOrigin,
       rate: probe.sampleRate,
       pcm: btoa(raw),
       app: window.__voiceLabEvents || [],
