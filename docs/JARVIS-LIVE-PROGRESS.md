@@ -90,3 +90,7 @@ Reused the existing older-memory, background-work, follow-up and five interrupti
 ## Original-build setup packaged
 
 The personal-memory/worker installation previously existed as manual steps. It is now implemented in `deploy/live-preview/install.sh` and exposed as `npm run setup:live`. Its default/check mode is read-only. The explicit installation mode uses the supported Hermes CLI and existing Hindsight memory-preparation command, installs the prepared private preview, checks readiness, verifies original configuration and routes, and stops/removes its preview on installation failure. It does not replace production. The script was syntax-checked, its local prerequisite check passed, and the service definition passed systemd validation. The installation mode has not been executed; the recorded destination approval remains unresolved. No voice performance or product behavior was changed during this build step.
+
+## Prompt aligned with the agreed reference
+
+Restored the official guide's required interruption heading and the two separate delegation-condition headings, as already used by native Hermes. The existing memory and work behavior remains the intended scope. Repeated only the same three spoken work cases and five interruption cases; retained the missed follow-up and timing failures. Build `cef1bf62525899d7` is not deployment-qualified. See the scorecard for results and the official source. No further prompt variants or provider changes were tried.
