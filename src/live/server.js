@@ -271,6 +271,7 @@ const server = createServer(async (req, res) => {
         instructions: instructions(
           memory.context(),
           store.jobs(conversation.id),
+          { instructions: b.instructions, pace: b.pace },
         ),
         history: liveHistory(store.history(conversation.id)),
       });

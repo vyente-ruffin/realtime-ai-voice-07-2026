@@ -2,6 +2,12 @@
 
 The current web interface now has a GPT-Live connection that can answer from prepared personal memories while Hermes works independently. At the user's request, this build now runs as the current app at `https://hermesubuntuv1.tailddc886.ts.net/`. The original entry point and configuration remain available for rollback. Outstanding acceptance failures are recorded in the scorecard.
 
+## Voice settings
+
+The web app offers the original persona presets, custom instructions (up to 2,000 characters), the supported voices, natural/slower/faster speaking pace, and browser microphone noise reduction on/off. Choices are saved in that browser and sent when starting or reconnecting; end the conversation before changing them. Default settings keep the existing Jarvis instructions and microphone processing.
+
+[Microsoft's GPT-Live reference](https://learn.microsoft.com/en-us/azure/foundry/openai/gpt-live-reference) documents startup instructions and voice, and rejects unknown fields. Persona and pace use those instructions, following the [official GPT-Live prompting guide](https://developers.openai.com/api/docs/guides/live-prompting). Pace is a preference, not a guaranteed playback multiplier. The old numeric speed, silence-duration and near/far-field filters are not GPT-Live configuration fields. Pause timing stays automatic. Noise reduction uses the browser's supported microphone constraint; it does not claim to restore Azure's former near/far-field filters. No extra model request is added. Hermes and Hindsight remain unchanged.
+
 ## Run and check
 
 Use Node 26 or later and the repository's installed dependencies. `npm run start:live` starts `src/live/server.js`; `npm run test:live` runs the focused tests without touching production. Settings are listed in `.env.live.example`. `npm run setup:live -- --check` checks the packaged personal setup; the explicit `--install` mode prepares the separate worker and personal summary, then installs the existing private-preview configuration. Its destination approval and usage are recorded in `deploy/live-preview/README.md`. Azure uses the existing signed-in CLI identity and an explicit subscription. Cloud credentials never reach the browser.

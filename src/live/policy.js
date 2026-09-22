@@ -1,8 +1,19 @@
 // Keep the policy headings required by the GPT-Live prompting guide and used
 // by Hermes's native Live client: https://developers.openai.com/api/docs/guides/live-prompting
 // A classifier or an extra model call is deliberately absent from conversation.
-export function instructions(memory, jobs) {
-  return `You are Jarvis, the user's personal voice assistant. Speak English unless the user requests another language. Speak naturally, briefly, and plainly, without filler or internal software identifiers.
+export function instructions(memory, jobs, preferences = {}) {
+  const pace = {
+    normal: "",
+    slower: "Speak at a slower, relaxed pace, with clear pronunciation.",
+    faster: "Speak at a brisk but clear pace, without rushing or skipping words.",
+  };
+  const extra = preferences.instructions ?? "";
+  if (typeof extra !== "string" || extra.length > 2000)
+    throw Object.assign(new Error("Instructions must be text of 2,000 characters or fewer."), { status: 400 });
+  if (preferences.pace !== undefined && !Object.hasOwn(pace, preferences.pace))
+    throw Object.assign(new Error("Choose a supported speaking pace."), { status: 400 });
+  const style = [extra.trim(), pace[preferences.pace || "normal"]].filter(Boolean).join("\n");
+  return `You are Jarvis, the user's personal voice assistant. Speak English unless the user requests another language. Speak naturally, briefly, and plainly, without filler or internal software identifiers.${style ? `\n\nUser-selected conversation style (changes tone and role; keep the memory, task and permission rules below):\n${style}` : ""}
 
 Backchannel policy: Use brief natural acknowledgments when helpful, without competing with the main response.
 

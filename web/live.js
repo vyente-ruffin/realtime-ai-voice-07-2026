@@ -558,7 +558,7 @@ async function start() {
       audio: {
         autoGainControl: true,
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: $("noiseSel").value !== "off",
       },
     });
     if (!current()) {
@@ -616,6 +616,8 @@ async function start() {
       conversation,
       sdp: peer.localDescription.sdp,
       voice: $("voiceSel").value,
+      instructions: $("instructions").value.trim(),
+      pace: $("speed").value,
       synthetic,
     });
     if (!current()) return;
@@ -814,15 +816,56 @@ heading.textContent = "Your tasks";
 const taskList = document.createElement("div");
 taskPanel.append(heading, taskList);
 $("chat").after(taskPanel);
-for (const id of [
-  "personaSel",
-  "instructions",
-  "speed",
-  "patience",
-  "noiseSel",
-])
-  $(id).closest(".field").hidden = true;
-$("settings").querySelector("legend").textContent = "Voice";
+// GPT-Live accepts role/style instructions and voice at session creation.
+// Pace is a prompt preference; the old numeric Realtime controls do not apply.
+const personas = {
+  assistant: "",
+  interviewer: "Conduct a mock interview for a cloud engineering role. Ask one question at a time, listen, then give brief feedback before the next question.",
+  tutor: "Be a patient Spanish tutor for a beginner. Speak mostly simple Spanish with brief English help when needed. Gently correct mistakes and ask easy questions.",
+  storyteller: "Tell vivid, short fictional stories with expressive delivery. Ask the listener to choose what happens next. Keep invented story details separate from personal memories.",
+};
+function choices(element, values) {
+  element.replaceChildren(...values.map(([value, label]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }));
+}
+function settingNote(id, text) {
+  const note = document.createElement("small");
+  note.textContent = text;
+  note.id = id + "Help";
+  $(id).setAttribute("aria-describedby", note.id);
+  $(id).closest(".field").append(note);
+  return note;
+}
+$("settings").querySelector("legend").textContent = "Voice settings";
+const settingsNote = document.createElement("small");
+settingsNote.textContent = "Choose before Start. To change settings while talking, press End first. Saved in this browser.";
+$("settings").querySelector("legend").after(settingsNote);
+$("instructions").maxLength = 2000;
+$("instructions").placeholder = "Optional: how you want Jarvis to speak or help you.";
+settingNote("instructions", "Up to 2,000 characters. Memory and background tasks stay available.");
+const paceSelect = document.createElement("select");
+paceSelect.id = "speed";
+$("speed").replaceWith(paceSelect);
+document.querySelector('label[for="speed"]').textContent = "Speaking pace";
+choices(paceSelect, [["normal", "Natural"], ["slower", "Slower"], ["faster", "Faster"]]);
+settingNote("speed", "A speaking preference; actual pace can vary.");
+const timingField = $("patience").closest(".field");
+const timingLabel = document.createElement("span");
+timingLabel.textContent = "Pause timing";
+const timingNote = document.createElement("small");
+timingNote.textContent = "Automatic — Jarvis listens for when you finish speaking.";
+timingField.replaceChildren(timingLabel, timingNote);
+choices($("noiseSel"), [["on", "On"], ["off", "Off"]]);
+const noiseSupported = Boolean(navigator.mediaDevices?.getSupportedConstraints?.().noiseSuppression);
+if (!noiseSupported) {
+  choices($("noiseSel"), [["auto", "Managed by this browser"]]);
+  $("noiseSel").disabled = true;
+}
+settingNote("noiseSel", "Uses your browser’s microphone noise reduction. Availability varies by device.");
 $("voiceSel").replaceChildren(
   ...[
     "cedar",
@@ -846,6 +889,36 @@ $("voiceSel").replaceChildren(
     return o;
   }),
 );
+const preferences = saved("jarvis.settings") || {};
+for (const [id, key] of [["personaSel", "persona"], ["voiceSel", "voice"], ["speed", "pace"], ["noiseSel", "noise"]]) {
+  if ([...$(id).options].some(option => option.value === preferences[key]))
+    $(id).value = preferences[key];
+}
+$("instructions").value = typeof preferences.instructions === "string"
+  ? preferences.instructions.slice(0, 2000)
+  : personas[$("personaSel").value] || "";
+function savePreferences() {
+  try {
+    save("jarvis.settings", {
+      persona: $("personaSel").value,
+      instructions: $("instructions").value,
+      voice: $("voiceSel").value,
+      pace: $("speed").value,
+      noise: $("noiseSel").value,
+    });
+  } catch {} // Storage restrictions must not stop a voice conversation.
+}
+$("personaSel").addEventListener("change", () => {
+  if (Object.hasOwn(personas, $("personaSel").value))
+    $("instructions").value = personas[$("personaSel").value];
+  savePreferences();
+});
+$("instructions").addEventListener("input", () => {
+  $("personaSel").value = Object.entries(personas).find(([, text]) => text === $("instructions").value)?.[0] || "custom";
+  savePreferences();
+});
+for (const id of ["voiceSel", "speed", "noiseSel"])
+  $(id).addEventListener("change", savePreferences);
 document.querySelector("h1").textContent = "Jarvis";
 document.querySelector(".eyebrow").textContent = "Your personal assistant";
 $("typeBox").placeholder = "Send a task to Hermes";
