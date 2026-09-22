@@ -1,5 +1,6 @@
 // GPT-Live transport follows Hermes's installed voice-live.ts and Microsoft's
 // WebRTC/client-delegation guides. Audio interruption never cancels an app job.
+import { BrowserTelemetry } from "./telemetry.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -37,11 +38,23 @@ let jobs = new Map(),
   currentCaption = null,
   captionRole = null;
 const synthetic = new URLSearchParams(location.search).get("synthetic") === "1";
+let activeCall = null;
+const telemetry = new BrowserTelemetry({
+  post: body => api("/api/telemetry", body),
+  // Beacon cannot set X-Voice-Auth; reuse the server's existing query-token auth.
+  beacon: body => navigator.sendBeacon(`/api/telemetry?auth=${encodeURIComponent(auth)}`,
+    new Blob([JSON.stringify(body)], { type: "application/json" })),
+});
 window.__voiceLabEvents = [];
-function record(type, detail = {}) {
+function record(type, detail = {}, call = activeCall) {
   window.__voiceLabEvents.push({ ts: Date.now(), type, ...detail });
   if (window.__voiceLabEvents.length > 10000)
     window.__voiceLabEvents.splice(0, 1000);
+  // Never ship raw provider events: these may contain speech, SDP or private tool results.
+  if (type.startsWith("connection.")) {
+    telemetry.record(call, type, detail);
+    void telemetry.flush();
+  }
 }
 function status(text) {
   $("status").textContent = text;
@@ -190,6 +203,14 @@ function showError(err) {
   status("⚠ " + err.message);
   record("app.error", { message: err.message });
 }
+/** Attribute asynchronous transport failures to their originating call, never a later reconnect. */
+function connectionError(err, call) {
+  showError(err);
+  const errorName = ["Error", "NotAllowedError", "NotFoundError", "NotReadableError", "AbortError",
+    "TimeoutError", "InvalidStateError", "OperationError", "RTCError", "SyntaxError", "TypeError"].includes(err.name)
+    ? err.name : "UnknownError";
+  record("connection.error", { errorName, reason: "connection_error" }, call);
+}
 function openEvents() {
   source?.close();
   source = new EventSource(
@@ -220,7 +241,7 @@ function openEvents() {
       event.session !== session
     ) {
       wanted = false;
-      teardown();
+      teardown("session_replaced");
       status("The conversation moved to another connection.");
     }
   };
@@ -317,7 +338,7 @@ async function delegate(event) {
     );
   }
 }
-async function handle(event) {
+async function handle(event, call = activeCall) {
   record(event.type, { ...event });
   if (event.type === "session.started") {
     retry = 0;
@@ -350,10 +371,10 @@ async function handle(event) {
       }
     }
   } else if (event.type === "session.closed") {
-    if (wanted) reconnect();
-    else teardown();
+    if (wanted) reconnect("remote_session_closed");
+    else teardown("user_end");
   } else if (event.type === "error") {
-    showError(new Error(event.error?.message || "Voice service error."));
+    connectionError(new Error(event.error?.message || "Voice service error."), call);
   }
 }
 function monitor(stream, input) {
@@ -534,6 +555,7 @@ async function start() {
   connecting = true;
   wanted = true;
   const epoch = ++connectEpoch;
+  let attempt = null;
   const current = () => wanted && epoch === connectEpoch;
   clearTimeout(retryTimer);
   retryTimer = null;
@@ -548,6 +570,8 @@ async function start() {
     });
     if (!current()) return;
     conversation = data.id;
+    attempt = telemetry.begin(conversation);
+    activeCall = attempt;
     save("jarvis.conversation", conversation);
     data.jobs.forEach(updateJob);
     await flushTranscript();
@@ -572,40 +596,54 @@ async function start() {
     monitor(mic, true);
     const peer = new RTCPeerConnection();
     pc = peer;
+    attempt.peer = peer;
     peer.ontrack = (e) => {
       if (!current()) return;
       const remote = e.streams[0] || new MediaStream([e.track]);
       audio.srcObject = remote;
       void audio
         .play()
-        .catch(() => showError(new Error("Tap Start to allow sound.")));
+        .catch(() => connectionError(new Error("Tap Start to allow sound."), attempt));
       monitor(remote, false);
     };
     peer.onconnectionstatechange = () => {
+      if (!current()) return;
+      record("connection.state", telemetry.states(attempt), attempt);
       if (
         current() &&
         ["failed", "disconnected"].includes(peer.connectionState)
       )
-        reconnect();
+        reconnect(peer.connectionState === "failed" ? "peer_failed" : "peer_disconnected");
     };
     mic.getTracks().forEach((track) => peer.addTrack(track, mic));
     const channel = peer.createDataChannel("oai-events");
     dc = channel;
+    attempt.channel = channel;
+    channel.onopen = () => {
+      if (!current()) return;
+      record("connection.open", telemetry.states(attempt), attempt);
+      void telemetry.sample(attempt);
+    };
+    channel.onerror = () => {
+      if (epoch !== connectEpoch) return;
+      record("connection.error", { ...telemetry.states(attempt), errorName: "RTCError", reason: "connection_error" }, attempt);
+    };
     channel.onmessage = (e) => {
       if (epoch !== connectEpoch) return;
       try {
         const event = JSON.parse(e.data);
         if (!wanted && event.type !== "session.closed") return;
-        void handle(event).catch(showError);
+        void handle(event, attempt).catch(err => connectionError(err, attempt));
       } catch (err) {
-        showError(err);
+        connectionError(err, attempt);
       }
     };
     channel.onclose = () => {
       if (epoch !== connectEpoch) return;
-      record("connection.channel.closed", { requested: !wanted });
-      if (wanted) reconnect();
-      else teardown();
+      const reason = wanted ? "remote_channel_closed" : "user_end";
+      record("connection.channel.closed", { ...telemetry.states(attempt), requested: !wanted, reason }, attempt);
+      if (wanted) reconnect(reason);
+      else teardown(reason);
     };
     const offer = await peer.createOffer();
     if (!current()) return;
@@ -614,12 +652,15 @@ async function start() {
     if (!current()) return;
     const result = await api("/api/live", {
       conversation,
+      callId: attempt.id,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       sdp: peer.localDescription.sdp,
       voice: $("voiceSel").value,
       instructions: $("instructions").value.trim(),
       pace: $("speed").value,
       synthetic,
     });
+    telemetry.bind(attempt, result.session.id);
     if (!current()) return;
     session = result.session.id;
     await peer.setRemoteDescription({
@@ -641,8 +682,8 @@ async function start() {
     } catch {}
   } catch (err) {
     if (!current()) return;
-    showError(err);
-    teardown();
+    connectionError(err, attempt);
+    teardown("connection_error");
     if (wanted) {
       retry++;
       retryTimer = setTimeout(
@@ -661,7 +702,10 @@ async function start() {
   }
 }
 
-function teardown() {
+function teardown(reason = "unknown") {
+  // Capture stats before close without delaying microphone release or reconnect.
+  void telemetry.end(activeCall, reason, reason === "user_end" || reason === "close_timeout");
+  activeCall = null;
   clearTimeout(closeTimer);
   closeTimer = null;
   connectEpoch++;
@@ -696,10 +740,10 @@ function teardown() {
   $("muteBtn").disabled = true;
   $("settings").disabled = false;
 }
-function reconnect() {
+function reconnect(reason = "unknown") {
   if (!wanted || retryTimer) return;
-  record("connection.lost");
-  teardown();
+  record("connection.lost", { reason });
+  teardown(reason);
   status("Reconnecting — tasks are still running");
   retry++;
   retryTimer = setTimeout(
@@ -765,16 +809,16 @@ $("stopBtn").onclick = () => {
   status("Conversation ended. Background tasks remain available.");
   // Match Hermes's native client: allow session.closed before closing transport.
   closeTimer = setTimeout(() => {
-    record("connection.close.timeout");
-    teardown();
+    record("connection.close.timeout", { reason: "close_timeout", requested: true });
+    teardown("close_timeout");
   }, 15000);
   try {
     if (send({ type: "session.close", event_id: crypto.randomUUID() })) {
-      record("connection.close.requested");
+      record("connection.close.requested", { reason: "user_end", requested: true });
       return;
     }
   } catch {}
-  teardown();
+  teardown("user_end");
 };
 $("muteBtn").onclick = () => setMuted(!muted);
 $("sendBtn").onclick = () => void typed().catch(showError);
@@ -789,6 +833,7 @@ window.addEventListener("online", () => {
   }
 });
 document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") telemetry.checkpoint(activeCall);
   if (document.visibilityState === "visible" && wanted) {
     void ac?.resume();
     if (!pc) void start();
@@ -801,6 +846,8 @@ document.addEventListener("visibilitychange", () => {
         .catch(() => {});
   }
 });
+// pagehide covers navigation; hidden is the mobile-friendly best-effort checkpoint.
+window.addEventListener("pagehide", () => telemetry.checkpoint(activeCall, true));
 const audio = document.createElement("audio");
 audio.autoplay = true;
 audio.setAttribute("playsinline", "");
@@ -927,3 +974,11 @@ status("Ready when you are");
 draw(0, 0);
 setInterval(() => void flushTranscript(), 700);
 setInterval(() => void deliver(), 200);
+setInterval(async () => {
+  const call = activeCall;
+  if (call && !call.ended) {
+    await telemetry.sample(call);
+    if (!call.ended) telemetry.record(call, "call.stats", { ...telemetry.states(call), ...call.stats });
+  }
+  void telemetry.flush();
+}, 5000);

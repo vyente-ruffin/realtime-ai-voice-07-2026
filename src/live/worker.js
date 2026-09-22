@@ -85,7 +85,8 @@ export class VoiceWorker {
             this.conversation = job.conversation;
           }
           const reply = await client.prompt(
-            workerPrompt(job, [], this.store.jobs(job.conversation)),
+            workerPrompt(job, [], this.store.jobs(job.conversation),
+              this.store.cache(`session-context:${job.conversation}:${job.session}`)?.value || {}),
           );
           if (this.store.job(job.id).state === "cancelled") continue;
           if (/^\s*Error:/i.test(reply.text || ""))

@@ -7,16 +7,19 @@ import { VoiceStore, liveHistory, joinedTurns } from "./store.js";
 import { AzureLive } from "./azure.js";
 import { VoiceMemory } from "./memory.js";
 import { VoiceWorker } from "./worker.js";
-import { instructions } from "./policy.js";
+import { instructions, resolveTimeZone } from "./policy.js";
+import { validateTelemetry } from "./telemetry.js";
 const logger = await getLogger("live.server");
 const root = resolve(import.meta.dirname, "../..");
 const port = Number(process.env.PORT || 8789);
 const pageTemplate = readFileSync(join(root, "talk.html"), "utf8");
 const browserScript = readFileSync(join(root, "web/live.js"), "utf8");
+const telemetryScript = readFileSync(join(root, "web/telemetry.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
+  .update(telemetryScript)
   .update(
-    ["azure.js", "memory.js", "policy.js", "server.js", "store.js", "worker.js"]
+    ["azure.js", "memory.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
       .join(""),
   )
@@ -147,12 +150,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && url.pathname === "/web/live.js") {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(browserScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : telemetryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
@@ -228,7 +231,22 @@ const server = createServer(async (req, res) => {
       return;
     }
     const b = await body(req);
+    if (!b || typeof b !== "object" || Array.isArray(b) || typeof b.conversation !== "string" || b.conversation.length > 200) {
+      problem(res, 400, "A conversation identifier is required.");
+      return;
+    }
     const conversation = requireConversation(b.conversation);
+    if (req.method === "POST" && url.pathname === "/api/telemetry") {
+      for (const { type, ...payload } of validateTelemetry(b.events, conversation.id)) {
+        store.audit(conversation.id, type, payload);
+        logger.info("Browser voice telemetry", {
+          service: "jarvis-voice", trace_id: payload.callId,
+          conversation: conversation.id, kind: type, ...payload,
+        });
+      }
+      json(res, 200, { saved: b.events.length });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/live") {
       if (b.synthetic && process.env.VOICE_QUALIFICATION !== "1") {
         problem(
@@ -265,23 +283,29 @@ const server = createServer(async (req, res) => {
         ? b.voice
         : "cedar";
       const started = Date.now();
+      const timeZone = resolveTimeZone(b.timeZone);
+      const callId = typeof b.callId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(b.callId) ? b.callId : null;
       const value = await azure.session({
         sdp: b.sdp,
         voice,
         instructions: instructions(
           memory.context(),
           store.jobs(conversation.id),
-          { instructions: b.instructions, pace: b.pace },
+          { instructions: b.instructions, pace: b.pace, timeZone },
         ),
         history: liveHistory(store.history(conversation.id)),
       });
       store.activate(conversation.id, value.session.id);
+      // Persist per session: a reconnect from another device must not change queued work's zone.
+      store.putCache(`session-context:${conversation.id}:${value.session.id}`, { timeZone });
       publish(conversation.id, {
         type: "session.active",
         session: value.session.id,
       });
       store.audit(conversation.id, "session.started", {
         session: value.session.id,
+        callId,
+        timeZone,
         connectionMs: Date.now() - started,
         preparedMemoryCount: memory.prepared.length,
       });
