@@ -31,6 +31,8 @@ const context = await browser.newContext();
 await context.grantPermissions(["microphone"], { origin: base });
 await context.addInitScript(installAudioProbe);
 const page = await context.newPage();
+await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.fulfill({status:200,body:""})); // Font downloads are outside the voice test.
+
 page.on("pageerror", (e) =>
   report.failures.push({ kind: "browser", message: e.message }),
 );
@@ -192,7 +194,7 @@ try {
     });
   }
   if (arg("story", null) && arg("interrupt", null)) {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < Number(arg("interruptions", "5")); attempt++) {
       const story = await fixture(arg("story"), `story-${attempt}`);
       // A backchannel can begin before the recorded request has finished.
       // Wait for the complete input and sustained reply before interrupting.

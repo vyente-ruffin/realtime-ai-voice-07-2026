@@ -1,6 +1,7 @@
 // GPT-Live transport follows Hermes's installed voice-live.ts and Microsoft's
 // WebRTC/client-delegation guides. Audio interruption never cancels an app job.
 import { BrowserTelemetry } from "./telemetry.js";
+import { MemoryContext } from "./memory-context.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -118,6 +119,7 @@ function append(type, text, delegation = null, id = crypto.randomUUID()) {
   });
 }
 let lastQuietSnapshot = "";
+const memoryContext = new MemoryContext(append, (section) => record("memory.context.accepted", section));
 let deliveryInFlight = null;
 function quietJobs() {
   if (!session || !jobs.size) return;
@@ -220,6 +222,7 @@ function openEvents() {
     const event = JSON.parse(data);
     if (event.type === "snapshot") event.jobs.forEach(updateJob);
     else if (event.type === "job.updated") updateJob(event.job);
+    else if (event.type === "memory.context") memoryContext.receive(event.models);
     else if (event.type === "memory.state") {
       const labels = {
         saving: "Saving memories…",
@@ -345,6 +348,7 @@ async function handle(event, call = activeCall) {
     status("Listening");
     $("lamp").textContent = "Ready";
     quietJobs();
+    memoryContext.flush();
     void flushTranscript();
   } else if (
     [
@@ -354,6 +358,7 @@ async function handle(event, call = activeCall) {
   )
     transcript(event);
   else if (event.type === "session.delegation.created") void delegate(event);
+  else if (event.type === "session.thinking.appended") memoryContext.acknowledge(event.client_event_id);
   else if (event.type === "session.commentary.appended") {
     const delivery = appendAcks.get(event.client_event_id);
     if (delivery) {
@@ -374,6 +379,7 @@ async function handle(event, call = activeCall) {
     if (wanted) reconnect("remote_session_closed");
     else teardown("user_end");
   } else if (event.type === "error") {
+    memoryContext.reject(event.client_event_id || event.error?.event_id);
     connectionError(new Error(event.error?.message || "Voice service error."), call);
   }
 }
@@ -622,6 +628,7 @@ async function start() {
     channel.onopen = () => {
       if (!current()) return;
       record("connection.open", telemetry.states(attempt), attempt);
+      memoryContext.flush();
       void telemetry.sample(attempt);
     };
     channel.onerror = () => {
@@ -663,6 +670,7 @@ async function start() {
     telemetry.bind(attempt, result.session.id);
     if (!current()) return;
     session = result.session.id;
+    memoryContext.reset(result.memoryModels || []);
     await peer.setRemoteDescription({
       type: "answer",
       sdp: result.transport.sdp,
@@ -729,6 +737,7 @@ function teardown(reason = "unknown") {
   ac = null;
   audio.srcObject = null;
   session = null;
+  memoryContext.reset();
   appendAcks.clear();
   deliveryInFlight = null;
   lastQuietSnapshot = "";

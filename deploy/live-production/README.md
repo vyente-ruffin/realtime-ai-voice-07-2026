@@ -14,6 +14,14 @@ Current build: `5281aa0bf099c390`, source commit `afbc8d4471088d99ebbf4481fc373a
 
 All 14 existing focused tests passed. An isolated browser check verified settings persistence, request contents, microphone constraints, mobile layout and Start/End controls. The normal HTTPS app then passed a page/health check with the new build, prepared memories and the worker ready. These checks do not establish live speech quality or interruption timing. Deployment waited for no active jobs and 257 seconds since speech; saved state counts were preserved. Evidence: `/home/localadmin/.local/state/jarvis-voice/settings-20260922T001137Z/`.
 
+## Prepared personal memory update
+
+The voice now loads three existing prepared summaries: `jarvis-voice-profile`, `jarvis-voice-preferences`, and `jarvis-voice-current`. Known personal facts can be answered directly; automatic summary changes enter open conversations quietly. The voice service's checkout and `VOICE_MEMORY_MODELS` select this version. The existing state, worker profile, and public route are preserved.
+
+Focused memory checks and all 37 regression tests passed. The older 500 ms interruption benchmark remains failed; see `docs/VOICE-MEMORY-VERIFICATION.md` for test boundaries and retained failures. Deployment was verified against the existing private website, including ready summaries/worker, exact browser files, and matching connection records in SQLite and the existing service log.
+
+Only the voice service was restarted, after checking idle status and preserving its state and prior settings. Hermes and Hindsight remained unchanged. Roll back this update by restoring the privately saved prior voice drop-in while idle, reloading systemd, and restarting only the voice service. Preserve the current state file. Existing browser tabs load the new script on refresh. Detailed deployment evidence stays in local private storage; Graylog receipt is unverified.
+
 ## Rollback
 
 Wait for active work to finish. Stop `voice-frontend.service`, remove only `~/.config/systemd/user/voice-frontend.service.d/50-jarvis-live.conf`, run `systemctl --user daemon-reload`, then start `voice-frontend.service`. The untouched original checkout at `/home/localadmin/homelab/realtime-ai-voice`, commit `9cf7105813f514553a5057933e3b63e5a3e35639`, and its `talk-server.js` entry point will run again on 8787. Verify `/healthz`. Preserve the new state file and all task outcomes; never replay uncertain actions.

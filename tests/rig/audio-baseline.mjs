@@ -35,6 +35,8 @@ try {
   const ctx = await browser.newContext();
   await ctx.grantPermissions(["microphone"], { origin: new URL(base).origin });
   page = await ctx.newPage();
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.fulfill({status:200,body:""})); // Font downloads are outside the voice test.
+
   // Ending this legacy session must not instruct Hermes to contact Telegram.
   await page.route("**/session-end", (route) => route.fulfill({ status: 204 }));
   await page.addInitScript(installAudioProbe);

@@ -14,7 +14,7 @@ Use Node 26 or later and the repository's installed dependencies. `npm run start
 
 The live server serves the existing `talk.html` markup and styles with `web/live.js`. It does not require rewriting or replacing the web app. The old entry point remains available for rollback.
 
-Before the first personal session, run `node scripts/prepare-voice-memory.mjs` with the intended `HINDSIGHT_CONFIG_PATH`. It provisions the voice-owned `jarvis-voice-context` summary using Hindsight’s native refresh after consolidation, coalesced within five minutes. The app reloads its cached copy every minute. Existing weekly personal/work summaries remain unchanged. Recent spoken corrections bridge the background refresh delay. The setup command waits for usable initial content and can be rerun without creating another summary.
+Before the first personal session, run `node scripts/prepare-voice-memory.mjs` with the intended `HINDSIGHT_CONFIG_PATH`. It provisions three focused voice-owned summaries: personal facts and relationships, preferences, and current priorities/recent decisions. Hindsight refreshes them after consolidation with a five-minute minimum interval. The app reads them every minute and quietly sends changed sections into active conversations. Existing personal/work summaries remain unchanged. Recent spoken corrections bridge the processing delay. Setup waits for usable initial content and can be rerun safely. See [the memory update flow](VOICE-MEMORY.md) for boundaries and verification.
 
 The private voice state file contains conversation fragments, jobs, delivery evidence, and a memory-save queue. Keep it on persistent local storage with a backup. A state file is bound to one Hindsight bank so test memories cannot accidentally become personal context.
 

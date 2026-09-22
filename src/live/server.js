@@ -6,6 +6,7 @@ import { getLogger } from "../core/logger.js";
 import { VoiceStore, liveHistory, joinedTurns } from "./store.js";
 import { AzureLive } from "./azure.js";
 import { VoiceMemory } from "./memory.js";
+import { defaultMemoryModelIds } from "./memory-models.js";
 import { VoiceWorker } from "./worker.js";
 import { instructions, resolveTimeZone } from "./policy.js";
 import { validateTelemetry } from "./telemetry.js";
@@ -15,11 +16,13 @@ const port = Number(process.env.PORT || 8789);
 const pageTemplate = readFileSync(join(root, "talk.html"), "utf8");
 const browserScript = readFileSync(join(root, "web/live.js"), "utf8");
 const telemetryScript = readFileSync(join(root, "web/telemetry.js"), "utf8");
+const memoryScript = readFileSync(join(root, "web/memory-context.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
   .update(telemetryScript)
+  .update(memoryScript)
   .update(
-    ["azure.js", "memory.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
+    ["azure.js", "memory.js", "memory-models.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
       .join(""),
   )
@@ -41,13 +44,17 @@ const memory = new VoiceMemory({
     process.env.HINDSIGHT_CONFIG_PATH ||
     resolve(process.env.HOME, ".hermes/profiles/voice/hindsight/config.json"),
   modelIds: (
-    process.env.VOICE_MEMORY_MODELS || "jarvis-voice-context"
+    process.env.VOICE_MEMORY_MODELS || defaultMemoryModelIds.join(",")
   )
     .split(",")
     .filter(Boolean),
   store,
   onState: (state) =>
     publish(state.conversation, { type: "memory.state", state: state.state }),
+  onRefresh: (models) => {
+    for (const conversation of subscribers.keys())
+      publish(conversation, { type: "memory.context", models });
+  },
 });
 const subscribers = new Map();
 function publish(conversation, event) {
@@ -150,12 +157,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(url.pathname === "/web/live.js" ? browserScript : telemetryScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : memoryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
@@ -217,6 +224,7 @@ const server = createServer(async (req, res) => {
       res.write(
         `data: ${JSON.stringify({ type: "snapshot", jobs: store.jobs(conversationId).map(publicJob) })}\n\n`,
       );
+      res.write(`data: ${JSON.stringify({ type: "memory.context", models: memory.snapshot() })}\n\n`);
       const keepalive = setInterval(() => res.write(": keepalive\n\n"), 15000);
       res.on("close", () => {
         clearInterval(keepalive);
@@ -283,13 +291,14 @@ const server = createServer(async (req, res) => {
         ? b.voice
         : "cedar";
       const started = Date.now();
+      const memoryModels = memory.snapshot();
       const timeZone = resolveTimeZone(b.timeZone);
       const callId = typeof b.callId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(b.callId) ? b.callId : null;
       const value = await azure.session({
         sdp: b.sdp,
         voice,
         instructions: instructions(
-          memory.context(),
+          memory.context(memoryModels),
           store.jobs(conversation.id),
           { instructions: b.instructions, pace: b.pace, timeZone },
         ),
@@ -313,6 +322,7 @@ const server = createServer(async (req, res) => {
         session: value.session,
         transport: value.transport,
         memoryReady: memory.prepared.length > 0,
+        memoryModels: memoryModels.map(({ id, revision }) => ({ id, revision })),
       });
       return;
     }
