@@ -17,10 +17,12 @@ const pageTemplate = readFileSync(join(root, "talk.html"), "utf8");
 const browserScript = readFileSync(join(root, "web/live.js"), "utf8");
 const telemetryScript = readFileSync(join(root, "web/telemetry.js"), "utf8");
 const memoryScript = readFileSync(join(root, "web/memory-context.js"), "utf8");
+const clockScript = readFileSync(join(root, "web/clock-context.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
   .update(telemetryScript)
   .update(memoryScript)
+  .update(clockScript)
   .update(
     ["azure.js", "memory.js", "memory-models.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
@@ -157,12 +159,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : memoryScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : memoryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {

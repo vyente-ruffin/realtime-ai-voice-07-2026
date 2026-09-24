@@ -2,6 +2,7 @@
 // WebRTC/client-delegation guides. Audio interruption never cancels an app job.
 import { BrowserTelemetry } from "./telemetry.js";
 import { MemoryContext } from "./memory-context.js";
+import { ClockContext } from "./clock-context.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -120,6 +121,12 @@ function append(type, text, delegation = null, id = crypto.randomUUID()) {
 }
 let lastQuietSnapshot = "";
 const memoryContext = new MemoryContext(append, (section) => record("memory.context.accepted", section));
+const clockContext = new ClockContext(append, (clock) => record("clock.context.accepted", clock));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") clockContext.refresh();
+});
+window.addEventListener("pageshow", () => clockContext.refresh());
+window.addEventListener("focus", () => clockContext.refresh());
 let deliveryInFlight = null;
 function quietJobs() {
   if (!session || !jobs.size) return;
@@ -348,6 +355,7 @@ async function handle(event, call = activeCall) {
     status("Listening");
     $("lamp").textContent = "Ready";
     quietJobs();
+    clockContext.start();
     memoryContext.flush();
     void flushTranscript();
   } else if (
@@ -358,7 +366,10 @@ async function handle(event, call = activeCall) {
   )
     transcript(event);
   else if (event.type === "session.delegation.created") void delegate(event);
-  else if (event.type === "session.thinking.appended") memoryContext.acknowledge(event.client_event_id);
+  else if (event.type === "session.thinking.appended") {
+    memoryContext.acknowledge(event.client_event_id);
+    clockContext.acknowledge(event.client_event_id);
+  }
   else if (event.type === "session.commentary.appended") {
     const delivery = appendAcks.get(event.client_event_id);
     if (delivery) {
@@ -380,6 +391,7 @@ async function handle(event, call = activeCall) {
     else teardown("user_end");
   } else if (event.type === "error") {
     memoryContext.reject(event.client_event_id || event.error?.event_id);
+    clockContext.reject(event.client_event_id || event.error?.event_id);
     connectionError(new Error(event.error?.message || "Voice service error."), call);
   }
 }
@@ -629,6 +641,7 @@ async function start() {
       if (!current()) return;
       record("connection.open", telemetry.states(attempt), attempt);
       memoryContext.flush();
+      clockContext.start();
       void telemetry.sample(attempt);
     };
     channel.onerror = () => {
@@ -738,6 +751,7 @@ function teardown(reason = "unknown") {
   audio.srcObject = null;
   session = null;
   memoryContext.reset();
+  clockContext.stop();
   appendAcks.clear();
   deliveryInFlight = null;
   lastQuietSnapshot = "";
@@ -806,6 +820,7 @@ $("startBtn").onclick = () => {
 };
 $("stopBtn").onclick = () => {
   wanted = false;
+  clockContext.stop();
   clearTimeout(retryTimer);
   retryTimer = null;
   source?.close();

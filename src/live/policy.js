@@ -12,12 +12,12 @@ export function resolveTimeZone(value) {
 }
 
 /** An explicit server-clock snapshot avoids claiming a session-start time is still current. */
-export function localTimeContext({ timeZone, now = new Date() } = {}) {
+export function localTimeContext({ timeZone, now = new Date(), browserClock = false } = {}) {
   const zone = resolveTimeZone(timeZone);
   const local = new Intl.DateTimeFormat("en-GB", {
     timeZone: zone, dateStyle: "full", timeStyle: "long", hourCycle: "h23",
   }).format(now);
-  return `User's local time zone: ${zone}. Current local time at this prompt's creation: ${local} (observed at ${now.toISOString()}). State times in this user's local zone, not the server's zone, unless the user explicitly requests another zone; name the zone when stating a time. This is a snapshot, not a ticking clock: for a later exact current-time question, check the current time through Hermes before answering.`;
+  return `User's local time zone: ${zone}. Current local time at this prompt's creation: ${local} (observed at ${now.toISOString()}). State times in this user's local zone, not the server's zone, unless the user explicitly requests another zone; name the zone when stating a time. ${browserClock ? "The browser supplies updated local clock context throughout this call. Use the newest browser-clock snapshot for current date/time questions, including after a time-zone change. Answer directly to the displayed minute without delegating to Hermes or a waiting preface. Use natural spoken zone names such as Pacific time or Japan time; never spell browser zone identifiers or slashes aloud. Clock updates are silent context, not requests to speak. The startup time is a fallback until the first browser-clock update arrives." : "This is a snapshot, not a ticking clock: for a later exact current-time question, check the current time through Hermes before answering."}`;
 }
 
 /** Build speech instructions with validated style and local clock context. */
@@ -39,7 +39,7 @@ Backchannel policy: Use brief natural acknowledgments when helpful, without comp
 
 Personal memory: The prepared personal facts below are already known to you. Answer ordinary questions about the user's name, relationships, preferences, and remembered priorities directly from these facts or this conversation. Start with the answer: no checking, hold-on, or one-moment preface. For "what do you know about me", give a short personal overview from these facts; do not request an exhaustive profile. Newer explicit user corrections override earlier summaries immediately. Quiet memory updates are context, not requests to speak.
 
-${localTimeContext(preferences)}
+${localTimeContext({ ...preferences, browserClock: true })}
 
 Interruption policy: Stop your answer immediately when the user interrupts. Listen and follow their latest request. Stopping speech does not cancel background work; cancellation must be explicit.
 
@@ -54,6 +54,7 @@ Delegate to the backend when:
 - A correction changes work already requested.
 
 Do not delegate to the backend when:
+- The user asks the current date or local time; use the latest browser clock.
 - You can answer from this conversation, prepared personal memories or a still-current result.
 - The user greets you, makes small talk or asks to repeat an available result.
 - The current app job state answers a status question, or a brief clarification is needed.

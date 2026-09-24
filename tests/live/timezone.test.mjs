@@ -10,7 +10,7 @@ test("speech and delegated prompts include resolved local time with zone and fre
     assert.match(prompt, /Asia\/Tokyo/);
     assert.match(prompt, /12:33:00/);
     assert.match(prompt, /2026-09-22T03:33:00\.000Z/);
-    assert.match(prompt, /not a ticking clock/);
+    assert.match(prompt, /snapshot|clock context/);
   }
 });
 
@@ -21,4 +21,14 @@ test("invalid, absent and offset-only zones fall back to Los Angeles with DST", 
     assert.match(prompt, /20:33:00/);
   }
   assert.match(policy.instructions("", [], { timeZone: "America/Los_Angeles", now: new Date("2026-01-22T03:33:00Z") }), /19:33:00/);
+});
+
+
+test("voice answers from live browser time while workers retain a dated snapshot", () => {
+  const voice = policy.instructions("", [], { timeZone: "Asia/Tokyo" });
+  assert.match(voice, /newest browser-clock snapshot/);
+  assert.match(voice, /without delegating to Hermes/);
+  assert.doesNotMatch(voice, /check the current time through Hermes/);
+  const worker = policy.workerPrompt({ request: "test" }, [], []);
+  assert.match(worker, /not a ticking clock/);
 });
