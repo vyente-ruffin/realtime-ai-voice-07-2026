@@ -6,6 +6,8 @@ Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, H
 
 The prepared-memory update and local connection/audio diagnostics are deployed. The memory checks and 37 regression tests passed. The existing 500 ms interruption timing check remains failed; the update does not establish that interruption speed was preserved. See the [test results and limitations](docs/VOICE-MEMORY-VERIFICATION.md) and [original voice qualification record](docs/JARVIS-LIVE.md).
 
+The reviewed task-authorization rule is now saved and tested in this active checkout for both speech and delegated work, preserving the prepared-memory implementation. It is not loaded by the running service: no restart was performed. JARVIS handles independent review and idle service adoption; see [ledger.md](ledger.md).
+
 ## How it works
 
 ```mermaid
@@ -61,6 +63,7 @@ Startup instructions tell the voice to use these updates. The updates themselves
 ## Run and maintain
 
 - Repository: [realtime-ai-voice-07-2026](https://github.com/vyente-ruffin/realtime-ai-voice-07-2026)
+- Active checkout: `/home/localadmin/homelab/realtime-ai-voice-memory`
 - Entry point: `src/live/server.js`; browser: `web/live.js`
 - Persistent state: the private SQLite file selected by `VOICE_STATE_PATH`
 - Runtime: `voice-frontend.service`; [deployment and rollback](deploy/live-production/README.md)
