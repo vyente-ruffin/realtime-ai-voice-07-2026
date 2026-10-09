@@ -39,6 +39,7 @@ export class VoiceWorker {
     baseUrl = process.env.HERMES_API_URL || "http://10.69.3.175:8642",
     key = hermesKey(),
     fetch = globalThis.fetch,
+    recall = async () => "",
     retryMs = 3000,
     unreachableMs = 10 * 60000,
     idleMs = 90000,
@@ -48,6 +49,7 @@ export class VoiceWorker {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.key = key;
     this.fetch = fetch;
+    this.recall = recall;
     this.retryMs = retryMs;
     this.unreachableMs = unreachableMs;
     this.idleMs = idleMs;
@@ -117,9 +119,12 @@ export class VoiceWorker {
   async start(job) {
     const session = this.sessionFor(job);
     const context = this.store.cache(`session-context:${job.conversation}:${job.session}`)?.value || {};
+    // Fresh memory for this request, so Hermes answers personal questions in one step
+    // from the newest memories instead of an older answer in its session.
+    const memory = await this.recall(job.request.split("\n").slice(-3).join("\n"));
     const body = {
       input: job.request,
-      instructions: workerInstructions(this.store.jobs(job.conversation), context),
+      instructions: workerInstructions(this.store.jobs(job.conversation), context, memory),
       session_id: session,
     };
     // Reserve the lane before the POST so a concurrent job sees it as busy.

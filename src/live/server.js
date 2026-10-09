@@ -69,6 +69,7 @@ function publish(conversation, event) {
 }
 const worker = new VoiceWorker({
   store,
+  recall: (query) => memory.recall(query),
   onUpdate: (job) =>
     publish(job.conversation, { type: "job.updated", job: publicJob(job) }),
 });

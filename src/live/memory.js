@@ -14,6 +14,8 @@ export class VoiceMemory {
       );
     store.putCache("memory-bank", this.root);
     this.key = c.apiKey || c.api_key;
+    // Same fact types Hermes recalls with (Hindsight Hermes integration, `recall_types`).
+    this.recallTypes = String(c.recall_types || "").split(",").map((t) => t.trim()).filter(Boolean);
     this.ids = modelIds;
     this.store = store;
     this.onState = onState;
@@ -35,6 +37,24 @@ export class VoiceMemory {
     });
     if (!r.ok) throw new Error(`Memory service returned ${r.status}.`);
     return r.json();
+  }
+  /** Recall memories for one voice request (Hindsight POST /memories/recall). Bounded, so a slow
+   * memory service delays a job by at most `timeout`; returns "" when nothing comes back. */
+  async recall(query, timeout = 4000) {
+    try {
+      const body = await this.request("/memories/recall", {
+        query: query.slice(-800),
+        budget: "mid",
+        max_tokens: 1024,
+        ...(this.recallTypes.length ? { types: this.recallTypes } : {}),
+      }, timeout);
+      return (body.results || []).slice(0, 10)
+        .map((m) => `- ${String(m.mentioned_at || m.occurred_start || "undated").slice(0, 10)}: ${String(m.text).replace(/\s+/g, " ").slice(0, 400)}`)
+        .join("\n");
+    } catch (err) {
+      logger.warn("Memory recall for a voice job failed", { error: err.message });
+      return "";
+    }
   }
   /** Hindsight liveness: its documented GET /health on the configured API root. */
   async health(timeout = 2500) {
