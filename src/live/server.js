@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import { getLogger } from "../core/logger.js";
-import { VoiceStore, liveHistory, joinedTurns } from "./store.js";
+import { VoiceStore, liveHistory, joinedTurns, deliveryCutoff } from "./store.js";
 import { AzureLive } from "./azure.js";
 import { VoiceMemory } from "./memory.js";
 import { defaultMemoryModelIds } from "./memory-models.js";
@@ -18,11 +18,13 @@ const browserScript = readFileSync(join(root, "web/live.js"), "utf8");
 const telemetryScript = readFileSync(join(root, "web/telemetry.js"), "utf8");
 const memoryScript = readFileSync(join(root, "web/memory-context.js"), "utf8");
 const clockScript = readFileSync(join(root, "web/clock-context.js"), "utf8");
+const deliveryScript = readFileSync(join(root, "web/delivery-policy.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
   .update(telemetryScript)
   .update(memoryScript)
   .update(clockScript)
+  .update(deliveryScript)
   .update(
     ["azure.js", "memory.js", "memory-models.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
@@ -35,6 +37,8 @@ const store = new VoiceStore(
   process.env.VOICE_STATE_PATH || join(root, "logs/live/state.sqlite"),
 );
 store.recover();
+// Fix 1: nothing finished before the ship day can ever be read out automatically.
+store.closeBacklog(deliveryCutoff);
 const azure = new AzureLive({
   endpoint: process.env.AZURE_OPENAI_ENDPOINT,
   deployment: process.env.AZURE_OPENAI_DEPLOYMENT_NAME,
@@ -159,12 +163,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js", "/web/delivery-policy.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : memoryScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : url.pathname === "/web/delivery-policy.js" ? deliveryScript : memoryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {

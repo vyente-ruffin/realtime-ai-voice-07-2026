@@ -3,6 +3,7 @@
 import { BrowserTelemetry } from "./telemetry.js";
 import { MemoryContext } from "./memory-context.js";
 import { ClockContext } from "./clock-context.js";
+import { DeliveryPolicy } from "./delivery-policy.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -127,7 +128,7 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pageshow", () => clockContext.refresh());
 window.addEventListener("focus", () => clockContext.refresh());
-let deliveryInFlight = null;
+const delivery = new DeliveryPolicy();
 function quietJobs() {
   if (!session || !jobs.size) return;
   const snapshot = JSON.stringify(
@@ -363,27 +364,42 @@ async function handle(event, call = activeCall) {
       "session.input_transcript.delta",
       "session.output_transcript.delta",
     ].includes(event.type)
-  )
+  ) {
     transcript(event);
-  else if (event.type === "session.delegation.created") void delegate(event);
+    if (event.type === "session.output_transcript.delta")
+      delivery.assistantSpeech(event, Date.now());
+    else {
+      const outcome = delivery.userSpeech(event, Date.now());
+      if (outcome === "stop")
+        // GPT-Live has no response-cancel event; trusted instructions change speech.
+        append(
+          "session.instructions.append",
+          "The user just told you to stop. Stop speaking immediately. Say nothing more, not even an acknowledgment, until the user speaks to you again.",
+        );
+      if (outcome) {
+        record(`delivery.${outcome}`);
+        void api("/api/audit", { conversation, session, kind: `delivery.${outcome}`, at: Date.now() }).catch(showError);
+      }
+    }
+  } else if (event.type === "session.delegation.created") void delegate(event);
   else if (event.type === "session.thinking.appended") {
     memoryContext.acknowledge(event.client_event_id);
     clockContext.acknowledge(event.client_event_id);
   }
   else if (event.type === "session.commentary.appended") {
-    const delivery = appendAcks.get(event.client_event_id);
-    if (delivery) {
+    const ack = appendAcks.get(event.client_event_id);
+    if (ack) {
       appendAcks.delete(event.client_event_id);
-      delivery.remaining.delete(event.client_event_id);
-      if (!delivery.remaining.size) {
+      ack.remaining.delete(event.client_event_id);
+      if (!ack.remaining.size) {
         void api("/api/delivery", {
           conversation,
           session,
-          job: delivery.job,
-          event: delivery.event,
+          job: ack.job,
+          event: ack.event,
           action: "accepted",
         }).catch(showError);
-        record("result.context.accepted", { job: delivery.job });
+        record("result.context.accepted", { job: ack.job });
       }
     }
   } else if (event.type === "session.closed") {
@@ -412,10 +428,14 @@ function monitor(stream, input) {
     const rms = Math.sqrt(energy / data.length),
       now = Date.now();
     if (input) {
-      if (!muted && rms > 0.018) microphoneUntil = now + 500;
+      if (!muted && rms > 0.018) {
+        microphoneUntil = now + 500;
+        delivery.heard(now);
+      }
     } else if (rms > 0.003) {
       speakerUntil = now + 250;
       lastSpeakerSample = now;
+      delivery.assistantActive(now);
     }
     draw(input ? rms : 0, input ? 0 : rms);
   }, 50);
@@ -452,31 +472,33 @@ function draw(input, output) {
   );
   c.stroke();
 }
+// Fix 1: one result per pause, this call's results only; earlier-call results
+// are spoken only after the user accepts a single waiting line.
 async function deliver() {
-  if (deliveryInFlight) {
-    const quietAfterAudio =
-      lastSpeakerSample > deliveryInFlight.start &&
-      Date.now() > speakerUntil + 600;
-    if (!quietAfterAudio && Date.now() - deliveryInFlight.start < 15000) return;
-    if (!quietAfterAudio)
-      record("result.playback.uncertain", { job: deliveryInFlight.job });
-    deliveryInFlight = null;
-  }
-  if (
-    !wanted ||
-    deliveriesBusy ||
-    !session ||
-    dc?.readyState !== "open" ||
-    Date.now() < Math.max(microphoneUntil, speakerUntil) + 350
-  )
-    return;
-  const job = [...jobs.values()].find(
-    (j) =>
-      ["completed", "failed", "cancelled", "interrupted"].includes(j.state) &&
-      j.delivery === "available" &&
-      !offered.has(j.id),
+  if (!wanted || deliveriesBusy || !session || dc?.readyState !== "open") return;
+  const now = Date.now();
+  const step = delivery.next(
+    [...jobs.values()].filter((j) => !offered.has(j.id)),
+    now,
+    now < speakerUntil,
   );
-  if (!job) return;
+  if (delivery.settled) {
+    record(`delivery.${delivery.settled}`);
+    void api("/api/audit", { conversation, session, kind: `delivery.${delivery.settled}`, at: now }).catch(showError);
+  }
+  if (!step) return;
+  if (step.kind === "waiting") {
+    const ids = append(
+      "session.commentary.append",
+      `Say exactly this one short sentence aloud, then stop and wait for the user: "${step.text}" Do not name, describe or guess these results. The app supplies each one only after the user says yes; if they do, say only a brief okay and wait for it. Never answer it from memory or the earlier conversation.`,
+    );
+    if (!ids.length) return;
+    delivery.sent(step, now);
+    record("result.waiting.offered", { jobs: step.jobs.map((j) => j.id) });
+    void api("/api/audit", { conversation, session, kind: "result.waiting_offered", at: now }).catch(showError);
+    return;
+  }
+  const job = step.job;
   deliveriesBusy = true;
   try {
     const { offer } = await api("/api/delivery", {
@@ -490,6 +512,7 @@ async function deliver() {
       return;
     }
     if (dc?.readyState !== "open") {
+      delivery.unsent();
       await api("/api/delivery", {
         conversation,
         session,
@@ -500,7 +523,6 @@ async function deliver() {
       return;
     }
     offered.add(job.id);
-    deliveryInFlight = { job: job.id, start: Date.now() };
     const delegation =
       job.session === session && !job.delegation.startsWith("typed_")
         ? job.delegation
@@ -511,12 +533,13 @@ async function deliver() {
       delegation,
       offer.event,
     );
-    const delivery = {
+    const pending = {
       job: job.id,
       event: offer.event,
       remaining: new Set(ids),
     };
-    ids.forEach((id) => appendAcks.set(id, delivery));
+    ids.forEach((id) => appendAcks.set(id, pending));
+    delivery.sent(step, Date.now());
     job.delivery = "offered";
     record("result.offered", { job: job.id, event: offer.event });
     // This is only playback evidence. It does not assert that the whole result was heard.
@@ -683,6 +706,7 @@ async function start() {
     telemetry.bind(attempt, result.session.id);
     if (!current()) return;
     session = result.session.id;
+    delivery.joinSession(session);
     memoryContext.reset(result.memoryModels || []);
     await peer.setRemoteDescription({
       type: "answer",
@@ -753,7 +777,6 @@ function teardown(reason = "unknown") {
   memoryContext.reset();
   clockContext.stop();
   appendAcks.clear();
-  deliveryInFlight = null;
   lastQuietSnapshot = "";
   offered.clear();
   void wake?.release();
@@ -816,6 +839,7 @@ async function typed() {
 }
 $("startBtn").onclick = () => {
   retryTimer = null;
+  delivery.startCall();
   void start();
 };
 $("stopBtn").onclick = () => {

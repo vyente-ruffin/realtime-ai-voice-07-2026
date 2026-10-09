@@ -3,6 +3,8 @@ import { mkdirSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
+// Fix 1 ship day (00:00 Pacific, the owner's zone): older results are never spoken unasked.
+export const deliveryCutoff = Date.parse("2026-10-09T00:00:00-07:00");
 // A local durable outbox, not a replacement for either upstream database.
 export class VoiceStore {
   constructor(filename) {
@@ -192,6 +194,18 @@ export class VoiceStore {
         "UPDATE deliveries SET state='available',updated=? WHERE job=? AND session=? AND event=? AND state='offered'",
       )
       .run(Date.now(), job, session, event);
+  }
+  /** Mark every final job finished before the cutoff as already offered. Idempotent. */
+  closeBacklog(cutoff = deliveryCutoff) {
+    return this.db
+      .prepare(
+        `INSERT INTO deliveries(job,state,session,event,updated)
+         SELECT j.id,'offered','backlog','backlog',? FROM jobs j
+         WHERE j.state IN ('completed','failed','cancelled','interrupted') AND j.updated<?
+         ON CONFLICT(job) DO UPDATE SET state='offered',session='backlog',event='backlog',updated=excluded.updated
+         WHERE deliveries.state='available'`,
+      )
+      .run(Date.now(), cutoff).changes;
   }
   delivery(job) {
     return this.db.prepare("SELECT * FROM deliveries WHERE job=?").get(job);

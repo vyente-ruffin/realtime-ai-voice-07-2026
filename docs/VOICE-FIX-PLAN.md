@@ -39,7 +39,7 @@ The goal is that JARVIS never reads a result you didn't ask for, and stays quiet
 | --- | --- | --- | --- |
 | 1a | No unasked old results | Finish a job, end the call, wait 5 minutes, start a new call and stay silent for 60 s. Query `deliveries` for the new call's session. | Zero rows for jobs from the earlier call. The transcript shows exactly one assistant line about waiting results. |
 | 1b | Results on request | In that same call, say "yes, tell me." | The result is spoken. A `deliveries` row for that job appears with state `injected` after V's "yes" fragment. |
-| 1c | Silence after stop | Start a call with two results from this call waiting. Say "stop" while the first is being read, then stay silent for 30 s. | No assistant fragment and no new `deliveries` row in that 30 s. |
+| 1c | Silence after stop | Start a call with two results from this call waiting. Say "stop" while the first is being read, then stay silent for 30 s. | No assistant fragment that starts more than 1 s after V's "stop" fragment, and no new `deliveries` row in that 30 s. Words already playing when V spoke may finish within that 1 s. |
 | 1d | Back to normal after stop | Ask a new question after 1c. | The assistant answers it. Results resume only after that answer. |
 | 1e | Old backlog closed | Count jobs finished before the ship date whose delivery is "available" or missing. | The count is 0. |
 | 1f | The Oct 4 case cannot repeat | Across every test call, look for a `deliveries` row created less than 10 s after a user fragment that overlapped assistant speech. | Zero rows. |
