@@ -11,14 +11,41 @@ const active = ["queued", "running", "awaiting_permission"];
 const terminal = { "run.completed": "completed", "run.failed": "failed", "run.cancelled": "cancelled", "run.interrupted": "interrupted" };
 // Plain words only: raw Hermes error text is logged, never spoken.
 export const reasons = {
-  capacity: "I'm at capacity: Hermes is already running as many tasks as it allows, so this one did not start. Ask again when one finishes.",
+  capacity: "Hermes was busy, so this did not start: I'm at capacity, running as many tasks as Hermes allows. Ask again when one finishes.",
   interrupted: "Hermes restarted during this task, so it stopped part way. It was not run again.",
   unreachable: "Hermes could not be reached, so this task did not start.",
   lost: "Hermes was unreachable for too long, so this task's outcome is unknown. It was not run again.",
   rejected: "Hermes would not start this task.",
   failed: "Hermes could not finish this task.",
-  cancelled: "Stopped at your request. Actions already completed are not undone.",
+  cancelled: "You cancelled it. Actions already completed are not undone.",
+  toolFailed: (tool) => `The ${toolName(tool)} step failed, so Hermes could not finish this task.`,
 };
+// Plain names for Hermes tools, for status answers ("what are you doing on that?").
+const toolWords = {
+  web_search: "searching the web", web_extract: "reading web pages", terminal: "running a command",
+  execute_code: "running code", read_file: "reading a file", write_file: "writing a file", patch: "editing a file",
+  search_files: "searching files", delegate_task: "handing part of it to a helper agent", todo: "planning its steps",
+  skill_view: "reading a skill", skills_list: "looking through skills", session_search: "searching past conversations",
+  memory: "updating memory", hindsight_recall: "searching long-term memory", hindsight_reflect: "thinking over long-term memory",
+  hindsight_retain: "saving to long-term memory", vision_analyze: "looking at an image", send_message: "sending a message",
+  cronjob: "scheduling a job", clarify: "asking a question",
+};
+function toolName(tool) {
+  return String(tool || "tool").replace(/^mcp_/, "").replace(/_/g, " ");
+}
+/** One short progress line from a tool.started or message.interim event. */
+export function progressStep(event) {
+  const clip = (s, n) => {
+    const t = String(s || "").replace(/\s+/g, " ").trim();
+    return t.length <= n ? t : t.slice(0, n - 1) + "…";
+  };
+  if (event.event === "message.interim") return clip(event.text, 140) ? `said: ${clip(event.text, 140)}` : null;
+  const tool = String(event.tool || "");
+  if (!tool || tool.startsWith("_")) return null;
+  const words = toolWords[tool] || (tool.startsWith("browser_") ? "using the browser" : `using the ${toolName(tool)} tool`);
+  const preview = clip(event.preview, 90);
+  return preview ? `${words} (${preview})` : words;
+}
 const choiceNames = { once: "Allow once", session: "Allow for this session", always: "Always allow", deny: "Deny" };
 
 /** Read only API_SERVER_KEY from the Hermes env file; the rest of that file stays out of this process. */
@@ -58,6 +85,7 @@ export class VoiceWorker {
     this.idleMs = idleMs;
     this.following = new Map();
     this.permissions = new Map();
+    this.failedTools = new Map();
   }
   async request(path, { method = "GET", body, headers = {}, timeout = 15000, signal } = {}) {
     return this.fetch(this.baseUrl + path, {
@@ -216,7 +244,10 @@ export class VoiceWorker {
       return true;
     }
     if (state !== "completed") logger.warn("Hermes run ended", { id: job.id, run: job.run_id, status: run.status, error: run.error });
-    this.settle(job.id, state, state === "completed" ? { result: String(run.output).trim() } : { error: reasons[state] });
+    const failedTool = this.failedTools.get(job.id);
+    this.failedTools.delete(job.id);
+    const error = state === "failed" && failedTool ? reasons.toolFailed(failedTool) : reasons[state];
+    this.settle(job.id, state, state === "completed" ? { result: String(run.output).trim() } : { error });
     return true;
   }
   async events(job, lastSeq) {
@@ -254,9 +285,15 @@ export class VoiceWorker {
   }
   event(job, event) {
     if (event.event === "approval.request") this.approval(job, event);
+    else if (event.event === "tool.started" || event.event === "message.interim") this.progress(job, progressStep(event));
+    else if (event.event === "tool.completed" && event.error) this.failedTools.set(job.id, event.tool);
     else if (event.event === "approval.responded" && this.store.job(job.id).state === "awaiting_permission") this.update(job.id, "running");
     else if (terminal[event.event])
       this.finish(job, { status: terminal[event.event], output: event.output, error: event.error });
+  }
+  progress(job, step) {
+    if (!step || !active.includes(this.store.job(job.id)?.state)) return;
+    this.onUpdate(this.store.setProgress(job.id, step));
   }
   approval(job, event) {
     if (!active.includes(this.store.job(job.id)?.state)) return;

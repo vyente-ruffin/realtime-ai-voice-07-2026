@@ -4,6 +4,7 @@ import { BrowserTelemetry } from "./telemetry.js";
 import { MemoryContext } from "./memory-context.js";
 import { ClockContext } from "./clock-context.js";
 import { DeliveryPolicy } from "./delivery-policy.js";
+import { statusContext, plainReason } from "./status-context.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -129,21 +130,18 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pageshow", () => clockContext.refresh());
 window.addEventListener("focus", () => clockContext.refresh());
 const delivery = new DeliveryPolicy();
+// Fix 4: task name, state, minutes, newest Hermes step and plain failure reason. Sent on every
+// job change, and again when the user starts speaking if the minutes have moved since: a timed
+// resend made the model announce progress unasked, and minutes only matter when asked.
+let statusCheckedAt = 0;
 function quietJobs() {
-  if (!session || !jobs.size) return;
-  const snapshot = JSON.stringify(
-    [...jobs.values()]
-      .sort((a, b) => b.updated - a.updated)
-      .slice(0, 8)
-      .map((j) => ({ id: j.id, state: j.state })),
-  );
+  if (!session) return;
+  statusCheckedAt = Date.now();
+  const snapshot = statusContext([...jobs.values()], Date.now());
   if (snapshot === lastQuietSnapshot) return;
+  if (!append("session.thinking.append", snapshot).length) return;
   lastQuietSnapshot = snapshot;
-  append(
-    "session.thinking.append",
-    "Background task states, available when the user asks for status: " +
-      snapshot,
-  );
+  record("status.context", { text: snapshot });
 }
 
 function renderJobs() {
@@ -355,7 +353,8 @@ async function handle(event, call = activeCall) {
     retry = 0;
     status("Listening");
     $("lamp").textContent = "Ready";
-    quietJobs();
+    // The session prompt already carries the status at call start.
+    if (jobs.size) quietJobs();
     clockContext.start();
     memoryContext.flush();
     void flushTranscript();
@@ -431,6 +430,7 @@ function monitor(stream, input) {
       if (!muted && rms > 0.018) {
         microphoneUntil = now + 500;
         delivery.heard(now);
+        if (now - statusCheckedAt > 2000) quietJobs();
       }
     } else if (rms > 0.003) {
       speakerUntil = now + 250;
@@ -529,7 +529,10 @@ async function deliver() {
         : null;
     const ids = append(
       "session.commentary.append",
-      `A background task ${job.state === "completed" ? "finished" : "ended"}. Tell the user its result briefly at a natural pause, once: ${job.result || job.error}`,
+      job.state === "completed"
+        ? `A background task finished. Tell the user its result briefly at a natural pause, once: ${job.result}`
+        : // Fix 4: an ended task is not running, and only its plain reason is passed on.
+          `A background task ended and is no longer running. Tell the user its result briefly at a natural pause, once: ${plainReason(job)}`,
       delegation,
       offer.event,
     );

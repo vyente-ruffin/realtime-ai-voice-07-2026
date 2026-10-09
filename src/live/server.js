@@ -10,6 +10,7 @@ import { defaultMemoryModelIds } from "./memory-models.js";
 import { VoiceWorker } from "./worker.js";
 import { instructions, resolveTimeZone } from "./policy.js";
 import { validateTelemetry } from "./telemetry.js";
+import { taskTitle } from "../../web/status-context.js";
 const logger = await getLogger("live.server");
 const root = resolve(import.meta.dirname, "../..");
 const port = Number(process.env.PORT || 8789);
@@ -19,12 +20,14 @@ const telemetryScript = readFileSync(join(root, "web/telemetry.js"), "utf8");
 const memoryScript = readFileSync(join(root, "web/memory-context.js"), "utf8");
 const clockScript = readFileSync(join(root, "web/clock-context.js"), "utf8");
 const deliveryScript = readFileSync(join(root, "web/delivery-policy.js"), "utf8");
+const statusScript = readFileSync(join(root, "web/status-context.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
   .update(telemetryScript)
   .update(memoryScript)
   .update(clockScript)
   .update(deliveryScript)
+  .update(statusScript)
   .update(
     ["azure.js", "memory.js", "memory-models.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
@@ -79,6 +82,7 @@ const worker = new VoiceWorker({
 function publicJob(job) {
   return {
     ...job,
+    title: job.title || taskTitle(job.request),
     request: undefined,
     delivery: store.delivery(job.id)?.state || "available",
     permissions: [...worker.permissions.values()]
@@ -167,12 +171,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js", "/web/delivery-policy.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js", "/web/delivery-policy.js", "/web/status-context.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : url.pathname === "/web/delivery-policy.js" ? deliveryScript : memoryScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : url.pathname === "/web/delivery-policy.js" ? deliveryScript : url.pathname === "/web/status-context.js" ? statusScript : memoryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {

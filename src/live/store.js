@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { taskTitle } from "../../web/status-context.js";
 
 // Fix 1 ship day (00:00 Pacific, the owner's zone): older results are never spoken unasked.
 export const deliveryCutoff = Date.parse("2026-10-09T00:00:00-07:00");
@@ -25,6 +26,10 @@ export class VoiceStore {
     const columns = this.db.prepare("PRAGMA table_info(jobs)").all().map((c) => c.name);
     if (!columns.includes("run_id")) this.db.exec("ALTER TABLE jobs ADD COLUMN run_id TEXT");
     if (!columns.includes("hermes_session")) this.db.exec("ALTER TABLE jobs ADD COLUMN hermes_session TEXT");
+    // Fix 4: a task name from the request and the newest Hermes progress step, for status answers.
+    if (!columns.includes("title")) this.db.exec("ALTER TABLE jobs ADD COLUMN title TEXT");
+    if (!columns.includes("progress")) this.db.exec("ALTER TABLE jobs ADD COLUMN progress TEXT");
+    if (!columns.includes("progress_at")) this.db.exec("ALTER TABLE jobs ADD COLUMN progress_at INTEGER");
     // Live test calls get their own conversation, labelled with the test run that made it.
     if (!this.db.prepare("PRAGMA table_info(conversations)").all().some((c) => c.name === "test"))
       this.db.exec("ALTER TABLE conversations ADD COLUMN test TEXT");
@@ -134,7 +139,7 @@ export class VoiceStore {
     const id = randomUUID(),
       now = Date.now();
     this.db
-      .prepare("INSERT OR IGNORE INTO jobs(id,conversation,delegation,session,state,request,result,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .prepare("INSERT OR IGNORE INTO jobs(id,conversation,delegation,session,state,request,result,error,created,updated,title) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .run(
         id,
         conversation,
@@ -146,6 +151,7 @@ export class VoiceStore {
         null,
         now,
         now,
+        taskTitle(request),
       );
     return this.db
       .prepare("SELECT * FROM jobs WHERE session=? AND delegation=?")
@@ -160,6 +166,13 @@ export class VoiceStore {
   }
   setRun(id, run, session) {
     this.db.prepare("UPDATE jobs SET run_id=?,hermes_session=?,updated=MAX(updated+1,?) WHERE id=?").run(run, session, Date.now(), id);
+    return this.job(id);
+  }
+  /** The newest Hermes progress step of an unfinished job. */
+  setProgress(id, progress) {
+    this.db
+      .prepare("UPDATE jobs SET progress=?,progress_at=?,updated=MAX(updated+1,?) WHERE id=? AND state IN ('queued','running','awaiting_permission')")
+      .run(progress, Date.now(), Date.now(), id);
     return this.job(id);
   }
   /** Jobs whose Hermes run may still be in flight. */
