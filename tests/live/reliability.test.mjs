@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VoiceStore, liveHistory } from "../../src/live/store.js";
-import { VoiceWorker } from "../../src/live/worker.js";
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-test-"));
   const path = join(dir, "state.sqlite");
@@ -105,114 +104,7 @@ test("assistant guesses are not promoted into user memory", (t) => {
   store.queueMemory();
   assert.equal(store.pendingMemory(), undefined);
 });
-test("twenty queued jobs produce twenty durable outcomes while submissions remain available", async (t) => {
-  const { store } = fixture(t);
-  const c = store.createConversation().id;
-  let count = 0,
-    active = 0,
-    max = 0;
-  const updates = [];
-  const client = {
-    start: async () => {},
-    isAlive: () => true,
-    newSession: async () => {},
-    prompt: async () => {
-      active++;
-      max = Math.max(max, active);
-      await new Promise((r) => setTimeout(r, 2));
-      active--;
-      return { stopReason: "end_turn", text: `Result ${++count}` };
-    },
-    stop() {},
-  };
-  const w = new VoiceWorker({
-    store,
-    onUpdate: (j) => updates.push(j),
-    clientFactory: () => client,
-  });
-  for (let i = 0; i < 20; i++) job(store, c, `d${i}`);
-  await w.kick();
-  assert.equal(max, 1);
-  assert.equal(store.jobs(c).filter((x) => x.state === "completed").length, 20);
-  assert.equal(updates.filter((x) => x.state === "completed").length, 20);
-});
-test("a speech interruption has no worker cancel path; an explicit task cancellation cannot become completion", async (t) => {
-  const { store } = fixture(t);
-  const c = store.createConversation().id;
-  const a = job(store, c);
-  let finish, started;
-  const ready = new Promise((r) => (started = r));
-  let cancelled = 0;
-  const client = {
-    start: async () => {},
-    isAlive: () => true,
-    newSession: async () => {},
-    prompt: () => {
-      started();
-      return new Promise((r) => (finish = r));
-    },
-    cancel() {
-      cancelled++;
-    },
-    stop() {},
-  };
-  const w = new VoiceWorker({
-    store,
-    onUpdate: () => {},
-    clientFactory: () => client,
-  });
-  const running = w.kick();
-  await ready;
-  assert.equal(cancelled, 0);
-  w.cancel(store.job(a.id));
-  finish({ stopReason: "end_turn", text: "Late result" });
-  await running;
-  assert.equal(cancelled, 1);
-  assert.equal(store.job(a.id).state, "cancelled");
-});
-test("permission choices must belong to the active job and preserve the request id", async (t) => {
-  const { store } = fixture(t);
-  const c = store.createConversation().id;
-  const a = job(store, c);
-  const answers = [];
-  const w = new VoiceWorker({ store, onUpdate: () => {} });
-  w.current = a;
-  w.client = { answerPermission: (...args) => answers.push(args) };
-  w.permission({
-    id: 7,
-    toolCall: { title: "Write file" },
-    options: [{ optionId: "yes", name: "Allow once" }],
-  });
-  assert.throws(() => w.answer("other", "7", "yes"));
-  assert.throws(() => w.answer(a.id, "7", "invented"));
-  w.answer(a.id, "7", "yes");
-  assert.deepEqual(answers, [[7, "yes"]]);
-});
-
-test("Hermes transport failures returned as text never become completed jobs", async (t) => {
-  const { store } = fixture(t);
-  const c = store.createConversation().id;
-  const a = job(store, c);
-  const client = {
-    start: async () => {},
-    isAlive: () => true,
-    newSession: async () => {},
-    prompt: async () => ({
-      stopReason: "end_turn",
-      text: "Error: provider failed",
-    }),
-    stop() {},
-  };
-  const worker = new VoiceWorker({
-    store,
-    onUpdate: () => {},
-    clientFactory: () => client,
-  });
-  await worker.kick();
-  assert.equal(store.job(a.id).state, "failed");
-  assert.equal(store.job(a.id).result, null);
-});
-
+// Worker behaviour against Hermes runs (concurrency, cancel, approvals, failures) is in hermes-runs.test.mjs.
 test("a personal conversation and its jobs follow the user to another device", (t) => {
   const { store } = fixture(t);
   const desktop = store.defaultConversation();

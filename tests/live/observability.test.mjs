@@ -117,11 +117,11 @@ test("live route validates timezone and worker uses the original session zone af
   t.after(() => store.close());
   const task = store.enqueue(conversation, first.session.id, "test-zone", "What time is it?");
   let prompt;
-  const worker = new VoiceWorker({ store, onUpdate() {}, clientFactory: () => ({
-    start: async () => {}, newSession: async () => {}, isAlive: () => true,
-    prompt: async value => { prompt = value; return { stopReason: "end_turn", text: "Synthetic result" }; },
-    stop() {},
-  }) });
+  const worker = new VoiceWorker({ store, onUpdate() {}, key: "k", baseUrl: "http://hermes.test", retryMs: 10, fetch: async (url, init = {}) => {
+    if (init.method === "POST") { prompt = JSON.parse(init.body).instructions; return Response.json({ run_id: "run_1" }, { status: 202 }); }
+    if (url.endsWith("/events?last_seq=-1")) return new Response('data: {"event":"run.completed","output":"Synthetic result","seq":0}\n\n');
+    return Response.json({ status: "completed", output: "Synthetic result" });
+  } });
   await worker.kick();
   assert.equal(store.job(task.id).state, "completed");
   assert.match(prompt, /Asia\/Tokyo/);

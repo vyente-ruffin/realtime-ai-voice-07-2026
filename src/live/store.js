@@ -21,6 +21,10 @@ export class VoiceStore {
       CREATE TABLE IF NOT EXISTS retention(id TEXT PRIMARY KEY, conversation TEXT, content TEXT, state TEXT, operation TEXT, attempts INTEGER DEFAULT 0, next_at INTEGER, error TEXT);
       CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, value TEXT, at INTEGER);
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, conversation TEXT, kind TEXT, payload TEXT, at INTEGER);`);
+    // Fix 2: each job is a Hermes run on the main profile.
+    const columns = this.db.prepare("PRAGMA table_info(jobs)").all().map((c) => c.name);
+    if (!columns.includes("run_id")) this.db.exec("ALTER TABLE jobs ADD COLUMN run_id TEXT");
+    if (!columns.includes("hermes_session")) this.db.exec("ALTER TABLE jobs ADD COLUMN hermes_session TEXT");
   }
   close() {
     this.db.close();
@@ -122,7 +126,7 @@ export class VoiceStore {
     const id = randomUUID(),
       now = Date.now();
     this.db
-      .prepare("INSERT OR IGNORE INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .prepare("INSERT OR IGNORE INTO jobs(id,conversation,delegation,session,state,request,result,error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)")
       .run(
         id,
         conversation,
@@ -146,6 +150,23 @@ export class VoiceStore {
       )
       .get();
   }
+  setRun(id, run, session) {
+    this.db.prepare("UPDATE jobs SET run_id=?,hermes_session=?,updated=MAX(updated+1,?) WHERE id=?").run(run, session, Date.now(), id);
+    return this.job(id);
+  }
+  /** Jobs whose Hermes run may still be in flight. */
+  activeRuns() {
+    return this.db
+      .prepare("SELECT * FROM jobs WHERE state IN ('running','awaiting_permission') AND run_id IS NOT NULL ORDER BY created")
+      .all();
+  }
+  /** Hermes sessions held by this conversation's unfinished jobs. */
+  busySessions(conversation) {
+    return this.db
+      .prepare("SELECT hermes_session FROM jobs WHERE conversation=? AND state IN ('running','awaiting_permission') AND hermes_session IS NOT NULL")
+      .all(conversation)
+      .map((r) => r.hermes_session);
+  }
   updateJob(id, state, { result = null, error = null } = {}) {
     this.db
       .prepare(
@@ -157,7 +178,7 @@ export class VoiceStore {
   recover() {
     this.db
       .prepare(
-        "UPDATE jobs SET state='interrupted',error='The voice service restarted during this work. Its outcome needs checking; it was not run again.',updated=MAX(updated+1,?) WHERE state IN ('running','awaiting_permission')",
+        "UPDATE jobs SET state='interrupted',error='The voice service restarted during this work. Its outcome needs checking; it was not run again.',updated=MAX(updated+1,?) WHERE state IN ('running','awaiting_permission') AND run_id IS NULL",
       )
       .run(Date.now());
     this.db

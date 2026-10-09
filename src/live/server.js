@@ -48,7 +48,7 @@ const azure = new AzureLive({
 const memory = new VoiceMemory({
   configPath:
     process.env.HINDSIGHT_CONFIG_PATH ||
-    resolve(process.env.HOME, ".hermes/profiles/voice/hindsight/config.json"),
+    resolve(process.env.HOME, ".hermes/hindsight/config.json"),
   modelIds: (
     process.env.VOICE_MEMORY_MODELS || defaultMemoryModelIds.join(",")
   )
@@ -172,13 +172,19 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {
+      // Ready only when both backends answer now; otherwise name the one that is down.
+      const [hermes, hindsight] = await Promise.all([worker.health(), memory.health()]);
+      const down = [!hermes.ok && "hermes", !hindsight.ok && "hindsight"].filter(Boolean);
       json(res, 200, {
-        status: memory.prepared.length ? "ready" : "degraded",
+        status: down.length ? "degraded" : "ready",
+        down,
+        hermes,
+        hindsight,
         voice: "gpt-live",
         buildId,
         preparedMemories: memory.prepared.length,
         memoryWarning: memory.lastError,
-        workerReady: Boolean(worker.client?.sessionId && !worker.readyPromise),
+        runningJobs: worker.following.size,
         memorySaves: store.memoryHealth(),
         uptimeSeconds: Math.round(process.uptime()),
       });
@@ -432,7 +438,7 @@ const server = createServer(async (req, res) => {
         problem(res, 404, "Task not found.");
         return;
       }
-      worker.answer(job.id, b.id, b.optionId);
+      await worker.answer(job.id, b.id, b.optionId);
       json(res, 200, { saved: true });
       return;
     }
@@ -471,10 +477,9 @@ await memory.refresh();
 void azure
   .accessToken()
   .catch((err) => logger.warn("Azure warmup pending", { error: err.message }));
-void worker
-  .warm()
-  .then(() => worker.kick())
-  .catch((err) => logger.warn("Hermes warmup pending", { error: err.message }));
+// Runs survive this service restarting: follow the ones still in flight, then start queued work.
+void worker.resume();
+void worker.kick();
 server.listen(port, process.env.HOST || "127.0.0.1", () =>
   logger.info("Jarvis voice ready", {
     port,

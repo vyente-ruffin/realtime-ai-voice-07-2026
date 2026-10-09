@@ -36,6 +36,16 @@ export class VoiceMemory {
     if (!r.ok) throw new Error(`Memory service returned ${r.status}.`);
     return r.json();
   }
+  /** Hindsight liveness: its documented GET /health on the configured API root. */
+  async health(timeout = 2500) {
+    try {
+      const r = await fetch(new URL("/health", this.root), { signal: AbortSignal.timeout(timeout) });
+      const body = r.ok ? await r.json() : null;
+      return ["healthy", "ok"].includes(body?.status) ? { ok: true } : { ok: false, error: `Hindsight health returned ${r.status}${body?.status ? ` (${body.status})` : ""}.` };
+    } catch (err) {
+      return { ok: false, error: `Hindsight is not answering (${err.name === "TimeoutError" ? "timeout" : err.cause?.code || err.message}).` };
+    }
+  }
   async refresh() {
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {

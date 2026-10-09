@@ -10,6 +10,7 @@ AzureLive.prototype.session = async function (options) {
 VoiceMemory.prototype.refresh = async function () { this.prepared = []; };
 VoiceMemory.prototype.context = () => "Synthetic fixture; no personal memory.";
 VoiceMemory.prototype.drain = async () => {};
-VoiceWorker.prototype.warm = async () => {};
+process.env.HERMES_API_URL ||= "http://127.0.0.1:1";
+VoiceWorker.prototype.resume = async () => {};
 VoiceWorker.prototype.kick = async () => {};
 await import("../../src/live/server.js");
