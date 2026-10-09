@@ -90,41 +90,32 @@ The goal is that voice jobs run on V's main Hermes profile, with the same memori
 - Hermes docs, [Programmatic integration](https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration): when to use the API server rather than ACP.
 - Hindsight docs, [Hermes integration](https://hindsight.vectorize.io/sdks/integrations/hermes): the supported `auto_recall`, `recall_budget` and `bank_id` settings. Change these only through config, never in code.
 
-## Fix 3: answer questions about V instantly
+## Fix 3: answer questions about V from memory, quickly
 
-The goal is that questions about V are answered right away from memory already loaded into the call, with no background job. Today the app loads three Hindsight memory summaries when a call starts, but the voice model still sends personal questions off to Hermes as background jobs.
+The goal is that questions about V are answered from his real memory, the same way any other request is. The answer has to be correct, conversational and back in a reasonable time. There are no canned or hard-coded answers. Since Fix 2, voice already looks things up through the main Hermes profile and its Hindsight memory. So this fix starts by measuring, and changes something only if a check fails.
 
-**What V saw.** On Sep 22, "What do you know about me" became a background job that took 81 seconds. A second one, asked while waiting, took 71 seconds. On the same day, "What is my name" was answered with "I'll check" before the name came.
-
-**Where it happens today**
-
-- `src/live/memory-models.js`: the three summaries are `jarvis-voice-profile`, `jarvis-voice-preferences` and `jarvis-voice-current`.
-- `src/live/memory.js`: reads them from Hindsight at `/v1/default/banks/{bank}/mental-models/{id}`.
-- `src/live/policy.js:44` and `:72`: the speech rules that say to answer personal questions from these facts, plus where the facts are inserted.
+**What V saw.** On Sep 22, "What do you know about me" took 81 seconds, because it waited in line behind other work on the old private Hermes. Fix 2 removed that line.
 
 **What to change**
 
-1. **Check the facts are there.** Confirm that all three summaries load at the start of every call, and that the health check shows that number of prepared memories.
-2. **Tighten the speech rule.** Questions about V's name, family, work, preferences and current priorities are answered from the prepared facts in one to three sentences. No acknowledgment first and no handoff. Hand off to Hermes only when the specific fact is missing, or when V asks for it to be checked.
-3. **Broad questions get a short answer.** "What do you know about me" gets a short summary from the profile summary, plus an offer to go deeper. It is not a background job.
-4. **Same memory bank as Fix 2.** The summaries come from the main profile's bank, `hermes`.
+1. **Measure first.** Run the checks below on the current build.
+2. **Fix only what fails, and only with documented settings or speech rules.** Examples are the Hindsight `recall_budget`, how mental models refresh, or when the voice hands off. Never write facts about V into code or prompts.
 
 **Done when all of these pass**
 
 | # | Check | How to measure | Pass |
 | --- | --- | --- | --- |
-| 3a | Facts loaded | `curl -s 127.0.0.1:8787/healthz` at the start of a call. | `preparedMemories` is 3 and `memoryWarning` is null. |
-| 3b | No background job for known facts | In one call, ask: "What's my name?", "What do you know about me?", "Who is Teresa?", "What am I working on right now?", "How do I like answers?" Count new rows in `jobs` for that session. | Zero new jobs. |
-| 3c | Instant | For each of those five questions, time from the end of V's last fragment to the start of the assistant's first fragment, both from `fragments`. | 3 seconds or less every time. |
-| 3d | Correct | Compare each answer with the text of the three summaries, read from the Hindsight API. | Every fact spoken appears in a summary. Nothing is made up. |
-| 3e | Missing facts still get looked up | Ask about something not in the summaries, such as "What did I email Mediacom last Tuesday?" | Exactly one job is created, and it is acknowledged in one short sentence. |
+| 3a | Correct from memory | In one call, ask: "What's my name?", "What do you know about me?", "Who is Teresa?", "What am I working on right now?" Compare each spoken answer with a Hindsight recall for the same question on bank `hermes`. | Every fact spoken is in V's memory. Nothing is made up. |
+| 3b | Fresh memory, not canned | Tell the main profile a new fact with a unique word using `hermes -z`, wait 10 minutes, then ask voice for it. | Voice says the new word, which proves the answer came from memory. |
+| 3c | Reasonable time | For each question in 3a and 3b, time from the end of V's question to the first words of the actual answer, using `fragments` timestamps. A "one sec" acknowledgement doesn't count. | Each answer starts within 10 seconds. |
+| 3d | Conversational | Follow up with "And what does she do?" right after "Who is Teresa?" | It answers in context from memory, without asking who "she" is. |
+| 3e | Nothing hard-coded | Search the diff for this fix for any of V's personal facts. | Zero hits. |
 
 **Sources if stuck**
 
-- Hindsight docs, [Mental models](https://hindsight.vectorize.io/developer/mental-models): a mental model read is a database lookup with no search and no model call, kept fresh by Hindsight.
-- Hindsight docs, [Best practices: mental models](https://hindsight.vectorize.io/best-practices#mental-models): what belongs in a mental model and how it refreshes.
-- Microsoft Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live), section "How GPT-Live works." The voice model decides when to hand off, and session instructions steer that choice.
-- Microsoft Learn, [Delegate work in GPT-Live](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live-delegation): how to split instructions between the voice model and the backend.
+- Hindsight docs, [Hermes integration](https://hindsight.vectorize.io/sdks/integrations/hermes): the recall settings `recall_budget`, `auto_recall` and `recall_types`.
+- Hindsight docs, [Mental models](https://hindsight.vectorize.io/developer/mental-models): the memory summaries our app already loads, and how they refresh.
+- Microsoft Learn, [Delegate work in GPT-Live](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live-delegation): when the voice model hands a question to the backend.
 
 ## Fix 4: give honest status
 
