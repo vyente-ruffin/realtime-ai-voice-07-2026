@@ -4,6 +4,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { launch, Call, sleep, until, query, turns } from "./harness.mjs";
+import { TestRun } from "./harness.mjs";
 import { speech } from "./tts.mjs";
 import { getLogger } from "../../src/core/logger.js";
 
@@ -32,7 +33,8 @@ const audio = {
     { continuous: true },
   ),
 };
-const { browser, context } = await launch();
+const testRunState = new TestRun("fix1");
+const { browser, context } = await launch(testRunState);
 try {
   // ---- Call 1: start a job, end the call before its result can be delivered.
   let call = await Call.open(context);
@@ -163,4 +165,5 @@ try {
   writeFileSync(file, JSON.stringify(out, null, 1), { mode: 0o600 });
   console.log(`\nResults: ${file}`);
   await browser.close();
+  await testRunState.finish();
 }

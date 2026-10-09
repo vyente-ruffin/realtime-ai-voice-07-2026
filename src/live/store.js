@@ -25,6 +25,9 @@ export class VoiceStore {
     const columns = this.db.prepare("PRAGMA table_info(jobs)").all().map((c) => c.name);
     if (!columns.includes("run_id")) this.db.exec("ALTER TABLE jobs ADD COLUMN run_id TEXT");
     if (!columns.includes("hermes_session")) this.db.exec("ALTER TABLE jobs ADD COLUMN hermes_session TEXT");
+    // Live test calls get their own conversation, labelled with the test run that made it.
+    if (!this.db.prepare("PRAGMA table_info(conversations)").all().some((c) => c.name === "test"))
+      this.db.exec("ALTER TABLE conversations ADD COLUMN test TEXT");
   }
   close() {
     this.db.close();
@@ -34,12 +37,17 @@ export class VoiceStore {
       ? this.db.prepare("SELECT * FROM conversations WHERE id=?").get(id)
       : null;
   }
-  createConversation() {
+  createConversation(test = null) {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO conversations VALUES(?,?,NULL)")
-      .run(id, Date.now());
+      .prepare("INSERT INTO conversations(id,created,active_session,test) VALUES(?,?,NULL,?)")
+      .run(id, Date.now(), test);
     return this.conversation(id);
+  }
+  /** A test conversation, or null for the owner's own conversations. */
+  testConversation(id) {
+    const c = this.conversation(id);
+    return c?.test ? c : null;
   }
   defaultConversation() {
     const saved = this.cache("default-conversation");
@@ -93,7 +101,7 @@ export class VoiceStore {
   recentUserStatements() {
     const rows = this.db
       .prepare(
-        "SELECT rowid AS sequence,* FROM fragments WHERE at>? ORDER BY at DESC,rowid DESC LIMIT 400",
+        "SELECT rowid AS sequence,* FROM fragments WHERE at>? AND conversation NOT IN (SELECT id FROM conversations WHERE test IS NOT NULL) ORDER BY at DESC,rowid DESC LIMIT 400",
       )
       .all(Date.now() - 7 * 86400000)
       .reverse();
@@ -246,6 +254,11 @@ export class VoiceStore {
       )
       .all(Date.now() - 3000);
     for (const { conversation } of conversations) {
+      // Test speech is never the owner's memory.
+      if (this.testConversation(conversation)) {
+        this.db.prepare("UPDATE fragments SET retained=1 WHERE conversation=? AND role='user' AND retained=0").run(conversation);
+        continue;
+      }
       const rows = this.db
         .prepare(
           "SELECT * FROM fragments WHERE conversation=? AND retained=0 AND role='user' ORDER BY at,rowid",

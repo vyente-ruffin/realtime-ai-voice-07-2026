@@ -39,6 +39,9 @@ export class VoiceWorker {
     baseUrl = process.env.HERMES_API_URL || "http://10.69.3.175:8642",
     key = hermesKey(),
     fetch = globalThis.fetch,
+    recall = async () => "",
+    // Spoken answers need to start within seconds; the main profile's own effort stays for its other channels.
+    reasoningEffort = process.env.VOICE_REASONING_EFFORT ?? "medium",
     retryMs = 3000,
     unreachableMs = 10 * 60000,
     idleMs = 90000,
@@ -48,6 +51,8 @@ export class VoiceWorker {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.key = key;
     this.fetch = fetch;
+    this.recall = recall;
+    this.reasoningEffort = reasoningEffort;
     this.retryMs = retryMs;
     this.unreachableMs = unreachableMs;
     this.idleMs = idleMs;
@@ -109,18 +114,27 @@ export class VoiceWorker {
     this.following.set(id, p);
     return p;
   }
-  /** One Hermes session per voice conversation; a job beside a live one gets its own lane, since one session runs one turn at a time. */
+  /** One Hermes session per voice call, so its transcript stays small; memory continuity comes
+   * from the main profile's Hindsight recall. A job beside a live one gets its own lane, since
+   * one session runs one turn at a time. */
   sessionFor(job) {
-    const main = `voice-${job.conversation}`;
+    const main = `voice-${job.conversation}-${job.session}`;
     return this.store.busySessions(job.conversation).includes(main) ? `${main}-${job.id.slice(0, 8)}` : main;
   }
   async start(job) {
     const session = this.sessionFor(job);
     const context = this.store.cache(`session-context:${job.conversation}:${job.session}`)?.value || {};
+    // A new per-call session has no auto-recall queued for its first turn (Hermes API server docs,
+    // "Long-term memory scoping"), so the app recalls for the request itself: one Hermes step, not three.
+    // Recall on what the user said: the voice's own replies are not evidence and crowd the query.
+    const said = job.request.split("\n").filter((l) => l.startsWith("user:")).slice(-3).map((l) => l.slice(5).trim());
+    const memory = await this.recall((said.length ? said : job.request.split("\n").slice(-3)).join("\n"));
     const body = {
       input: job.request,
-      instructions: workerInstructions(this.store.jobs(job.conversation), context),
+      instructions: workerInstructions(this.store.jobs(job.conversation), context, memory),
       session_id: session,
+      // Request-scoped reasoning control (Hermes API server docs, "Per-request model selection").
+      ...(this.reasoningEffort ? { model_options: { reasoning_effort: this.reasoningEffort } } : {}),
     };
     // Reserve the lane before the POST so a concurrent job sees it as busy.
     this.store.setRun(job.id, null, session);

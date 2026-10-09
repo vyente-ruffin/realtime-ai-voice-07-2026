@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
 import { silence } from "./tts.mjs";
+import { cleanup } from "./cleanup.mjs";
 
 export const base = process.env.VOICE_E2E_URL || "http://127.0.0.1:8787";
 export const statePath = process.env.VOICE_STATE_PATH || resolve(process.env.HOME, ".local/state/jarvis-voice/state.sqlite");
@@ -66,7 +67,60 @@ const mixer = () => {
   };
 };
 
-export async function launch() {
+const ownerConversation = () => JSON.parse(query("SELECT value FROM cache WHERE key='default-conversation'")[0]?.value || "null");
+const ownerFragments = () => query("SELECT COUNT(*) AS n FROM fragments WHERE conversation=?", ownerConversation())[0].n;
+
+/** One live test run: its own test conversation on the server, and a cleanup that always runs.
+ * Calls never land in the owner's conversation; memories the run creates are invalidated. */
+export class TestRun {
+  constructor(name) {
+    this.name = `${name}-${Date.now().toString(36)}`;
+    this.since = Date.now();
+    this.words = [];
+    this.ownerBefore = ownerFragments();
+    this.conversation = null;
+  }
+  /** A fresh test conversation, created with the key only the local state file holds. */
+  async conversationId() {
+    if (this.conversation) return this.conversation;
+    const key = JSON.parse(query("SELECT value FROM cache WHERE key='test-key'")[0].value);
+    const token = (await (await fetch(`${base}/auth-refresh`)).json()).token;
+    const r = await fetch(`${base}/api/conversations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Voice-Auth": token },
+      body: JSON.stringify({ test: { key, run: this.name } }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`Test conversation not created: HTTP ${r.status}`);
+    this.conversation = (await r.json()).id;
+    return this.conversation;
+  }
+  /** Invalidate everything the run created and prove the owner's conversation is untouched. */
+  async finish() {
+    const report = await cleanup({ run: this.name, since: this.since, words: this.words, extraSessions: this.extraSessions || [] });
+    report.ownerConversationNewFragments = ownerFragments() - this.ownerBefore;
+    console.log(`[isolation] owner conversation new fragments: ${report.ownerConversationNewFragments}`);
+    return report;
+  }
+}
+
+/** Run `body(run)` as one isolated test run; cleanup runs even when the body fails. */
+export async function testRun(name, body) {
+  const run = new TestRun(name);
+  let result, error;
+  try {
+    result = await body(run);
+  } catch (err) {
+    error = err;
+  }
+  const report = await run.finish();
+  if (error) throw error;
+  return { result, cleanup: report };
+}
+
+export async function launch(run) {
+  if (!run) throw new Error("Live calls need a TestRun so they stay out of the owner's conversation.");
+  const conversation = await run.conversationId();
   const browser = await chromium.launch({
     executablePath: "/usr/bin/google-chrome",
     headless: true,
@@ -77,8 +131,11 @@ export async function launch() {
       "--autoplay-policy=no-user-gesture-required",
     ],
   });
-  const context = await browser.newContext({ permissions: ["microphone"] });
+  // The owner's browser zone, so clock answers match a real call.
+  const context = await browser.newContext({ permissions: ["microphone"], timezoneId: process.env.VOICE_E2E_TZ || "America/Los_Angeles" });
   await context.addInitScript(mixer);
+  // The page keeps its conversation in localStorage; start it in the test conversation.
+  await context.addInitScript((id) => localStorage.setItem("jarvis.conversation", JSON.stringify(id)), conversation);
   return { browser, context };
 }
 

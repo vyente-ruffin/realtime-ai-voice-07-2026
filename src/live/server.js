@@ -36,6 +36,9 @@ const auth = randomBytes(24).toString("hex");
 const store = new VoiceStore(
   process.env.VOICE_STATE_PATH || join(root, "logs/live/state.sqlite"),
 );
+// Live test calls prove local access by reading this key from the owner-only state file.
+const testKey = randomBytes(24).toString("hex");
+store.putCache("test-key", testKey);
 store.recover();
 // Fix 1: nothing finished before the ship day can ever be read out automatically.
 store.closeBacklog(deliveryCutoff);
@@ -69,6 +72,7 @@ function publish(conversation, event) {
 }
 const worker = new VoiceWorker({
   store,
+  recall: (query) => memory.recall(query),
   onUpdate: (job) =>
     publish(job.conversation, { type: "job.updated", job: publicJob(job) }),
 });
@@ -206,10 +210,18 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/conversations") {
       const b = await body(req);
-      const c =
-        process.env.VOICE_QUALIFICATION === "1" && b.isolated
-          ? store.conversation(b.id) || store.createConversation()
-          : store.defaultConversation();
+      const testRun = typeof b.test?.run === "string" && /^[A-Za-z0-9_.-]{1,80}$/.test(b.test.run) ? b.test.run : null;
+      if (b.test !== undefined && (b.test?.key !== testKey || !testRun)) {
+        problem(res, 403, "A valid test key and run name are required.");
+        return;
+      }
+      // Test calls never join the owner's conversation, its replayed history or its memory saves.
+      const c = testRun
+        ? store.createConversation(testRun)
+        : store.testConversation(b.id) ||
+          (process.env.VOICE_QUALIFICATION === "1" && b.isolated
+            ? store.conversation(b.id) || store.createConversation()
+            : store.defaultConversation());
       json(res, 200, {
         id: c.id,
         jobs: store.jobs(c.id).map(publicJob),

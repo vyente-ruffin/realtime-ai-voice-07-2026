@@ -86,7 +86,7 @@ test("2b: a job starts a Hermes run with the documented fields and stores its ru
   assert.equal(post.headers["Idempotency-Key"], a.id);
   assert.equal(post.headers["X-Hermes-Session-Key"], `voice:${conversation}`);
   assert.equal(post.body.input, "user: what is the weather?");
-  assert.equal(post.body.session_id, `voice-${conversation}`);
+  assert.equal(post.body.session_id, `voice-${conversation}-call-1`);
   assert.match(post.body.instructions, /delegated from a live voice conversation/);
   assert.match(post.body.instructions, /Asia\/Tokyo/);
   await until(() => store.job(a.id).run_id === "run_1", "run id stored");
@@ -189,8 +189,8 @@ test("2f: jobs run side by side; a quick one finishes while a long one is still 
   const quickDone = worker.kick();
   await until(() => store.job(quick.id).run_id, "quick run");
   // One Hermes session runs one turn at a time, so the second job gets its own lane.
-  assert.equal(hermes.runs.get("run_1").session_id, `voice-${conversation}`);
-  assert.equal(hermes.runs.get("run_2").session_id, `voice-${conversation}-${quick.id.slice(0, 8)}`);
+  assert.equal(hermes.runs.get("run_1").session_id, `voice-${conversation}-call-1`);
+  assert.equal(hermes.runs.get("run_2").session_id, `voice-${conversation}-call-1-${quick.id.slice(0, 8)}`);
   hermes.complete("run_2", "Quick answer.");
   await quickDone;
   assert.equal(store.job(quick.id).state, "completed");
@@ -201,7 +201,7 @@ test("2f: jobs run side by side; a quick one finishes while a long one is still 
   const next = job("next");
   const nextDone = worker.kick();
   await until(() => store.job(next.id).run_id, "next run");
-  assert.equal(hermes.runs.get("run_3").session_id, `voice-${conversation}`);
+  assert.equal(hermes.runs.get("run_3").session_id, `voice-${conversation}-call-1`);
   hermes.complete("run_3", "ok");
   await nextDone;
 });

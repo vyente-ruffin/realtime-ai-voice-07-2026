@@ -11,6 +11,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { launch, Call, sleep, until, query, turns, base } from "./harness.mjs";
+import { TestRun } from "./harness.mjs";
 import { speech } from "./tts.mjs";
 import { hermesKey } from "../../src/live/worker.js";
 import { getLogger } from "../../src/core/logger.js";
@@ -61,7 +62,8 @@ async function ask(call, text, { job = true, timeout = 45000 } = {}) {
   return { said, job: row };
 }
 
-const { browser, context } = ["2b", "2g"].includes(check) ? {} : await launch();
+const testRunState = new TestRun("fix2");
+const { browser, context } = ["2b", "2g"].includes(check) ? {} : await launch(testRunState);
 let call;
 try {
   if (check === "2c") {
@@ -204,4 +206,5 @@ try {
   writeFileSync(file, JSON.stringify(out, null, 1), { mode: 0o600 });
   console.log(`\nResults: ${file}`);
   await browser?.close();
+  await testRunState.finish();
 }

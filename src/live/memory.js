@@ -14,6 +14,13 @@ export class VoiceMemory {
       );
     store.putCache("memory-bank", this.root);
     this.key = c.apiKey || c.api_key;
+    // Recall exactly as the main profile's Hermes auto-recall is configured (Hindsight Hermes integration settings).
+    this.recallSettings = {
+      budget: c.recall_budget || "mid",
+      maxTokens: Number(c.recall_max_tokens) || 4096,
+      maxInputChars: Number(c.recall_max_input_chars) || 800,
+      types: String(c.recall_types || "").split(",").map((t) => t.trim()).filter(Boolean),
+    };
     this.ids = modelIds;
     this.store = store;
     this.onState = onState;
@@ -35,6 +42,29 @@ export class VoiceMemory {
     });
     if (!r.ok) throw new Error(`Memory service returned ${r.status}.`);
     return r.json();
+  }
+  /** Recall memories for one voice request (Hindsight POST /memories/recall). Bounded, so a slow
+   * memory service delays a job by at most `timeout`; returns "" when nothing comes back. */
+  async recall(query, timeout = 5000) {
+    const { budget, maxTokens, maxInputChars, types } = this.recallSettings;
+    try {
+      const body = await this.request("/memories/recall", {
+        query: query.slice(-maxInputChars),
+        budget,
+        max_tokens: maxTokens,
+        ...(types.length ? { types } : {}),
+      }, timeout);
+      // Hindsight already bounds the result by max_tokens; only repeated facts are dropped.
+      const seen = new Set();
+      return (body.results || [])
+        .map((m) => ({ when: String(m.occurred_start || m.mentioned_at || "undated").slice(0, 10), text: String(m.text).replace(/\s+/g, " ").trim() }))
+        .filter((m) => m.text && !seen.has(m.text) && seen.add(m.text))
+        .map((m) => `- ${m.when}: ${m.text}`)
+        .join("\n");
+    } catch (err) {
+      logger.warn("Memory recall for a voice job failed", { error: err.message });
+      return "";
+    }
   }
   /** Hindsight liveness: its documented GET /health on the configured API root. */
   async health(timeout = 2500) {
