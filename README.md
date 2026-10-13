@@ -1,12 +1,15 @@
 # Jarvis live voice
 
-Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, Hindsight for personal memory, and a separate Hermes worker for deeper lookups and background tasks. Familiar facts are available before you ask, so answering them does not require a memory search or a waiting announcement. Conversation stays available while Hermes works.
+Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, Hindsight for personal memory, and your main Hermes (the same JARVIS as CLI and Telegram) for deeper lookups and background tasks. Familiar facts are available before you ask, so answering them does not require a memory search or a waiting announcement. Conversation stays available while Hermes works.
 
 ## Current status
 
-The prepared-memory update and local connection/audio diagnostics are deployed. The memory checks and 37 regression tests passed. The existing 500 ms interruption timing check remains failed; the update does not establish that interruption speed was preserved. See the [test results and limitations](docs/VOICE-MEMORY-VERIFICATION.md) and [original voice qualification record](docs/JARVIS-LIVE.md).
+Live since 2026-10-09 (merged to main 2026-10-13) after four fixes, each checked live against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/fix1.md`–`fix4.md`). 93 regression tests pass.
 
-The reviewed task-authorization rule is now saved and tested in this active checkout for both speech and delegated work, preserving the prepared-memory implementation. It is not loaded by the running service: no restart was performed. JARVIS handles independent review and idle service adoption; see [ledger.md](ledger.md).
+1. **No unasked results.** Connecting is silent. Finished task results are spoken only in the call that asked for them, never after you say stop.
+2. **Same JARVIS.** Background work runs on the main Hermes profile through its API server (Runs API), not a separate voice worker, so Hermes updates apply without restarting the voice app.
+3. **Memory answers.** Questions about you are answered from memory: prepared summaries first, otherwise a Hermes memory lookup. Answers start within 10 seconds, and follow-up questions work.
+4. **Honest status.** "How's that going?" gets the task's name, state, time elapsed, latest step, and a plain reason if it failed.
 
 ## How it works
 
@@ -22,7 +25,7 @@ flowchart LR
     V -->|Send changed summaries| B
     B -->|Quiet memory updates| A
     A -->|Request missing information or a task| B
-    B -->|Delegate work through voice server| W[Hermes worker]
+    B -->|Delegate work through voice server| W[Main Hermes API server]
     W -->|Look up deeper memories when needed| H
     W -->|Return results through voice server| B
 ```
@@ -67,13 +70,15 @@ Startup instructions tell the voice to use these updates. The updates themselves
 - Entry point: `src/live/server.js`; browser: `web/live.js`
 - Persistent state: the private SQLite file selected by `VOICE_STATE_PATH`
 - Runtime: `voice-frontend.service`; [deployment and rollback](deploy/live-production/README.md)
+- Background work: main Hermes API server at `HERMES_API_URL` (key read from `API_SERVER_KEY` in `~/.hermes/.env`). Each call gets its own Hermes session. `VOICE_REASONING_EFFORT` sets task reasoning (default `medium`; empty uses the Hermes default).
+- Live end-to-end checks: `scripts/live-e2e/` (headless Chrome with a fake microphone, its own test conversation; `cleanup.mjs` removes test memories afterward)
 
 Use Node 26+, installed npm dependencies, a signed-in Azure CLI identity for the configured subscription, and the existing worker/memory configuration in the [app guide](docs/JARVIS-LIVE.md) and [environment example](.env.live.example). Keep credentials, personal memories, recordings, and detailed deployment records out of Git.
 
 - Start an appropriately configured instance: `npm run start:live`
 - Run isolated regression tests: `npm run test:live`
 - Browser checks also require the existing Playwright Chromium installation.
-- Wait until no conversation or background job is active before restarting the voice service. Reload the browser afterward to load updated scripts.
+- Wait until no conversation or background job is active before restarting the voice service. Reload the browser afterward to load updated scripts. Hermes updates no longer require a voice service restart.
 
 Diagnostics write to the existing local audit table and service log. They do not add an in-app dashboard; Graylog delivery remains unverified.
 
