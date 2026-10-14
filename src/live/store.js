@@ -340,6 +340,17 @@ export class VoiceStore {
       )
       .run(conversation, kind, JSON.stringify(payload), Date.now());
   }
+  /** All-or-nothing, so a retried telemetry batch is saved once rather than partially duplicated. */
+  auditBatch(conversation, entries) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { kind, payload } of entries) this.audit(conversation, kind, payload);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
 }
 
 export function joinedTurns(fragments) {

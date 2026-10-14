@@ -107,6 +107,7 @@ export class VoiceWorker {
   }
   update(id, state, fields) {
     const job = this.store.updateJob(id, state, fields);
+    lifecycle(job);
     this.onUpdate(job);
     return job;
   }
@@ -332,6 +333,7 @@ export class VoiceWorker {
     if (!active.includes(job.state)) return job;
     for (const [key, p] of this.permissions) if (p.job === job.id) this.permissions.delete(key);
     const updated = this.store.updateJob(job.id, "cancelled", { error: reasons.cancelled });
+    lifecycle(updated);
     if (job.run_id) void this.stopRun(job.run_id);
     this.onUpdate(updated);
     return updated;
@@ -339,3 +341,11 @@ export class VoiceWorker {
   stop() {}
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** One correlated line per task state change; ids and state only, never the request or result. */
+function lifecycle(job) {
+  if (!job) return;
+  logger.info("Background task state", {
+    service: "jarvis-voice", id: job.id, conversation: job.conversation, session: job.session,
+    state: job.state, run: job.run_id || null, ageMs: Date.now() - job.created,
+  });
+}

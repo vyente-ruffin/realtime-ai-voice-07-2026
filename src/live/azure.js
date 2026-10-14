@@ -3,6 +3,11 @@ import { promisify } from "node:util";
 import { getLogger } from "../core/logger.js";
 const exec = promisify(execFile);
 const logger = await getLogger("live.azure");
+/** Azure's opaque request id, when sent, lets provider support find this call; bounded and charset-checked. */
+function requestId(response) {
+  const value = response.headers.get("apim-request-id") || response.headers.get("x-request-id");
+  return value && /^[A-Za-z0-9_.:-]{1,128}$/.test(value) ? value : null;
+}
 export class AzureLive {
   constructor({ endpoint, deployment, subscription }) {
     if (!endpoint || new URL(endpoint).protocol !== "https:")
@@ -77,10 +82,14 @@ export class AzureLive {
       if (response.status !== 401) break;
     }
     if (!response.ok) {
-      logger.warn("Azure session rejected", { status: response.status });
+      const providerRequestId = requestId(response);
+      logger.warn("Azure session rejected", { status: response.status, providerRequestId });
+      // providerStatus, not status: the HTTP boundary keeps answering 502 for provider failures.
       throw Object.assign(
         new Error(`Azure could not start voice (${response.status}).`),
         {
+          providerStatus: response.status,
+          providerRequestId,
           retryAfterMs:
             response.status === 429
               ? Math.max(
@@ -94,6 +103,6 @@ export class AzureLive {
     const value = await response.json();
     if (!value.session?.id || !value.transport?.sdp)
       throw new Error("Azure returned an incomplete voice connection.");
-    return value;
+    return { ...value, requestId: requestId(response) };
   }
 }

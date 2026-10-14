@@ -116,6 +116,28 @@ function problem(res, status, title, retryAfterMs = 0) {
     }),
   );
 }
+/** Bounded SQLite failure identifiers (node:sqlite code/errcode/errstr); never the message,
+ * which can carry trigger or constraint text. */
+function storageFailure(err) {
+  return {
+    errorName: err?.name === "Error" ? "Error" : "UnknownError",
+    errorCode: typeof err?.code === "string" && /^[A-Z_]{1,60}$/.test(err.code) ? err.code : "unknown",
+    ...(Number.isInteger(err?.errcode) ? { sqliteCode: err.errcode } : {}),
+    ...(typeof err?.errstr === "string" ? { sqliteError: err.errstr.slice(0, 100) } : {}),
+  };
+}
+/** Diagnostics must not turn a working voice call into a failure; a lost audit row is logged instead. */
+function auditOrWarn(conversation, kind, payload, traceId = null) {
+  try {
+    store.audit(conversation, kind, payload);
+    return true;
+  } catch (err) {
+    logger.warn("Voice audit write failed", {
+      service: "jarvis-voice", trace_id: traceId, conversation, kind, events: 1, ...storageFailure(err),
+    });
+    return false;
+  }
+}
 function allowed(origin) {
   if (!origin) return true;
   try {
@@ -273,13 +295,23 @@ const server = createServer(async (req, res) => {
     }
     const conversation = requireConversation(b.conversation);
     if (req.method === "POST" && url.pathname === "/api/telemetry") {
-      for (const { type, ...payload } of validateTelemetry(b.events, conversation.id)) {
-        store.audit(conversation.id, type, payload);
+      const events = validateTelemetry(b.events, conversation.id);
+      try {
+        store.auditBatch(conversation.id, events.map(({ type, ...payload }) => ({ kind: type, payload })));
+      } catch (err) {
+        // 503 keeps the batch queued in the browser, which counts the failed flush for telemetry.gap.
+        logger.warn("Voice audit write failed", {
+          service: "jarvis-voice", trace_id: events[0]?.callId ?? null, conversation: conversation.id,
+          kind: "telemetry", events: events.length, ...storageFailure(err),
+        });
+        problem(res, 503, "Diagnostics could not be saved; they will be retried.");
+        return;
+      }
+      for (const { type, ...payload } of events)
         logger.info("Browser voice telemetry", {
           service: "jarvis-voice", trace_id: payload.callId,
           conversation: conversation.id, kind: type, ...payload,
         });
-      }
       json(res, 200, { saved: b.events.length });
       return;
     }
@@ -322,16 +354,33 @@ const server = createServer(async (req, res) => {
       const memoryModels = memory.snapshot();
       const timeZone = resolveTimeZone(b.timeZone);
       const callId = typeof b.callId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(b.callId) ? b.callId : null;
-      const value = await azure.session({
-        sdp: b.sdp,
-        voice,
-        instructions: instructions(
-          memory.context(memoryModels),
-          store.jobs(conversation.id),
-          { instructions: b.instructions, pace: b.pace, timeZone },
-        ),
-        history: liveHistory(store.history(conversation.id)),
-      });
+      let value;
+      try {
+        value = await azure.session({
+          sdp: b.sdp,
+          voice,
+          instructions: instructions(
+            memory.context(memoryModels),
+            store.jobs(conversation.id),
+            { instructions: b.instructions, pace: b.pace, timeZone },
+          ),
+          history: liveHistory(store.history(conversation.id)),
+        });
+      } catch (err) {
+        // Correlate a failed start with the browser's call ID; never the offer, prompt or history.
+        const failure = {
+          callId,
+          providerStatus: err.providerStatus ?? null,
+          providerRequestId: err.providerRequestId ?? null,
+          errorName: err.name,
+          connectionMs: Date.now() - started,
+        };
+        auditOrWarn(conversation.id, "session.failed", failure, callId);
+        logger.warn("Voice session failed", {
+          service: "jarvis-voice", trace_id: callId, conversation: conversation.id, ...failure,
+        });
+        throw err;
+      }
       store.activate(conversation.id, value.session.id);
       // Persist per session: a reconnect from another device must not change queued work's zone.
       store.putCache(`session-context:${conversation.id}:${value.session.id}`, { timeZone });
@@ -339,12 +388,18 @@ const server = createServer(async (req, res) => {
         type: "session.active",
         session: value.session.id,
       });
-      store.audit(conversation.id, "session.started", {
+      auditOrWarn(conversation.id, "session.started", {
         session: value.session.id,
         callId,
         timeZone,
         connectionMs: Date.now() - started,
         preparedMemoryCount: memory.prepared.length,
+        providerRequestId: value.requestId ?? null,
+      }, callId);
+      logger.info("Voice session started", {
+        service: "jarvis-voice", trace_id: callId, conversation: conversation.id,
+        session: value.session.id, connectionMs: Date.now() - started,
+        preparedMemoryCount: memory.prepared.length, providerRequestId: value.requestId ?? null,
       });
       json(res, 200, {
         session: value.session,
@@ -395,6 +450,9 @@ const server = createServer(async (req, res) => {
           .map((t) => `${t.role}: ${t.text}`)
           .join("\n"),
       );
+      logger.info("Background task queued", {
+        service: "jarvis-voice", id: job.id, conversation: conversation.id, session: b.session,
+      });
       json(res, 202, { job: publicJob(job) });
       publish(conversation.id, { type: "job.updated", job: publicJob(job) });
       void worker.kick();
@@ -427,11 +485,17 @@ const server = createServer(async (req, res) => {
         store.deliveryAck(job.id, b.session, b.event);
       else if (b.action === "not_sent")
         store.releaseOffer(job.id, b.session, b.event);
-      else if (b.action === "playback_observed")
-        store.audit(conversation.id, "result.playback_observed", {
-          job: job.id,
-          event: b.event,
-        });
+      else if (b.action === "playback_observed") {
+        // The event is the server-issued offer id (result_<uuid>); never store arbitrary client text.
+        if (typeof b.event !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(b.event)) {
+          problem(res, 400, "Invalid delivery event.");
+          return;
+        }
+        // Browser output-level observation after the result was sent; not proof it was heard.
+        const observed = { session: b.session, job: job.id, event: b.event };
+        auditOrWarn(conversation.id, "result.playback_observed", observed);
+        logger.info("Result playback observed", { service: "jarvis-voice", conversation: conversation.id, ...observed });
+      }
       else {
         problem(res, 400, "Unknown delivery action.");
         return;

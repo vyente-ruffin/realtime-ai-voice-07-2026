@@ -8,7 +8,11 @@ const types = new Set([
   "connection.started", "connection.open", "connection.state", "connection.channel.closed", "connection.ending",
   "connection.close.requested", "connection.close.timeout", "connection.lost",
   "connection.error", "connection.page.hidden", "connection.page.exit", "call.stats", "call.ended",
+  "connection.microphone", "connection.playback", "connection.session.started", "connection.session.closed",
+  "connection.updates.lost", "connection.audio_context", "telemetry.gap",
 ]);
+// Provider error type/code are documented identifiers (GPT-Live reference, "Error handling"); never the message.
+const providerIdentifier = value => typeof value === "string" && /^[a-z0-9_.]{1,100}$/.test(value);
 const fields = {
   reason: choices(["remote_channel_closed", "remote_session_closed", "peer_failed", "peer_disconnected",
     "user_end", "close_timeout", "session_replaced", "connection_error", "page_exit", "unknown"]),
@@ -23,6 +27,17 @@ const fields = {
   jitterSeconds: nullableNumber, roundTripTimeSeconds: nullableNumber,
   audioReceived: value => value === null || typeof value === "boolean",
   sampledAt: nullableNumber,
+  stage: choices(["conversation", "microphone", "audio_context", "offer", "session", "answer",
+    "channel", "event", "provider", "playback"]),
+  // Browser-observed states only: "playing" means the media element started, not that anyone heard it.
+  microphoneState: choices(["live", "muted", "disabled", "ended"]),
+  // paused/stalled/ended mirror HTMLMediaElement events (HTML Standard, "Media elements").
+  playbackState: choices(["track_received", "playing", "blocked", "paused", "stalled", "ended"]),
+  audioContextState: choices(["suspended", "running", "closed", "interrupted"]),
+  providerErrorType: providerIdentifier, providerErrorCode: providerIdentifier,
+  commandCorrelated: value => typeof value === "boolean",
+  providerCloseReason: choices(["close_requested", "expired", "content", "remote_hangup", "connection_lost", "unknown"]),
+  droppedEvents: number, failedFlushes: number, beaconRefused: number,
 };
 
 /** Validate the entire batch before any durable write (RFC 9457 at the HTTP boundary). */

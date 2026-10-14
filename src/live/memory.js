@@ -40,7 +40,7 @@ export class VoiceMemory {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(timeout),
     });
-    if (!r.ok) throw new Error(`Memory service returned ${r.status}.`);
+    if (!r.ok) throw Object.assign(new Error(`Memory service returned ${r.status}.`), { status: r.status });
     return r.json();
   }
   /** Recall memories for one voice request (Hindsight POST /memories/recall). Bounded, so a slow
@@ -105,10 +105,12 @@ export class VoiceMemory {
       this.lastError = problems.length
         ? `Prepared memory unavailable or too long: ${problems.join(", ")}. Last usable facts are kept.` : null;
       this.onRefresh(this.snapshot());
-      logger.info("Prepared memories loaded", {
+      // Model ids only; a degraded refresh is a warning so it is not lost among routine loads.
+      logger[problems.length ? "warn" : "info"]("Prepared memories loaded", {
         count: this.prepared.length,
         stale: this.prepared.filter((x) => x.stale).length,
         degraded: Boolean(this.lastError),
+        ...(problems.length ? { failedModels: problems } : {}),
       });
     })().finally(() => {
       this.refreshing = null;
@@ -140,6 +142,7 @@ export class VoiceMemory {
           const op = await this.request(`/operations/${item.operation}`);
           if (op.status === "completed") {
             this.store.memoryState(item.id, "completed");
+            logger.info("Memory save completed", { id: item.id, conversation: item.conversation });
             this.onState({ conversation: item.conversation, state: this.store.memorySaveStatus(item.conversation) });
           } else if (["failed", "cancelled"].includes(op.status)) {
             this.store.memoryState(
@@ -147,6 +150,7 @@ export class VoiceMemory {
               "failed",
               "Memory extraction failed; the original conversation remains saved.",
             );
+            logger.warn("Memory save failed", { id: item.id, conversation: item.conversation, operation: item.operation, status: op.status });
             this.onState({ conversation: item.conversation, state: "failed" });
           } else this.store.memoryState(item.id, "submitted", null, 5000);
         } else {
@@ -175,7 +179,14 @@ export class VoiceMemory {
           Math.min(60000, 2000 * 2 ** Math.min(item.attempts, 5)),
         );
         this.onState({ conversation: item.conversation, state: "pending" });
-        logger.warn("Memory save pending", { id: item.id, error: err.message });
+        // Bounded identifiers only: a fetch error's message and cause can carry the memory host.
+        logger.warn("Memory save pending", {
+          id: item.id, conversation: item.conversation, stage: item.state === "submitted" ? "status" : "send",
+          errorName: ["Error", "TypeError", "TimeoutError", "AbortError", "SyntaxError"].includes(err?.name) ? err.name : "UnknownError",
+          httpStatus: Number.isInteger(err?.status) ? err.status : null,
+          errorCode: typeof err?.cause?.code === "string" && /^[A-Z_]{1,40}$/.test(err.cause.code) ? err.cause.code : null,
+          attempts: item.attempts + 1,
+        });
       }
     } finally {
       this.draining = false;

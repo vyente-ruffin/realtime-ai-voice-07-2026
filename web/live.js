@@ -211,19 +211,35 @@ function showError(err) {
   status("⚠ " + err.message);
   record("app.error", { message: err.message });
 }
-/** Attribute asynchronous transport failures to their originating call, never a later reconnect. */
-function connectionError(err, call) {
-  showError(err);
-  const errorName = ["Error", "NotAllowedError", "NotFoundError", "NotReadableError", "AbortError",
-    "TimeoutError", "InvalidStateError", "OperationError", "RTCError", "SyntaxError", "TypeError"].includes(err.name)
+function errorNameOf(err) {
+  return ["Error", "NotAllowedError", "NotFoundError", "NotReadableError", "AbortError",
+    "TimeoutError", "InvalidStateError", "OperationError", "RTCError", "SyntaxError", "TypeError"].includes(err?.name)
     ? err.name : "UnknownError";
-  record("connection.error", { errorName, reason: "connection_error" }, call);
 }
+/** Attribute asynchronous transport failures to their originating call, never a later reconnect.
+ * stage names where it failed (microphone, session, playback, provider...); never the message. */
+function connectionError(err, call, stage, extra = {}) {
+  showError(err);
+  record("connection.error", { errorName: errorNameOf(err), reason: "connection_error", ...(stage ? { stage } : {}), ...extra }, call);
+}
+/** GPT-Live error envelope (reference, "Error handling"): keep documented type/code identifiers only. */
+function providerError(error) {
+  const id = (value) => typeof value === "string" && /^[a-z0-9_.]{1,100}$/.test(value);
+  return {
+    ...(id(error?.type) ? { providerErrorType: error.type } : {}),
+    ...(id(error?.code) ? { providerErrorCode: error.code } : {}),
+    commandCorrelated: typeof error?.client_event_id === "string",
+  };
+}
+let updatesOpen = false;
 function openEvents() {
   source?.close();
   source = new EventSource(
     `/api/events?conversation=${encodeURIComponent(conversation)}&auth=${encodeURIComponent(auth)}`,
   );
+  source.onopen = () => {
+    updatesOpen = true;
+  };
   source.onmessage = ({ data }) => {
     const event = JSON.parse(data);
     if (event.type === "snapshot") event.jobs.forEach(updateJob);
@@ -255,6 +271,9 @@ function openEvents() {
     }
   };
   source.onerror = async () => {
+    // Task and memory updates stop arriving until this reopens; record each loss once.
+    if (updatesOpen) record("connection.updates.lost");
+    updatesOpen = false;
     source?.close();
     try {
       const data = await api(`/api/jobs?conversation=${conversation}`);
@@ -350,6 +369,7 @@ async function delegate(event) {
 async function handle(event, call = activeCall) {
   record(event.type, { ...event });
   if (event.type === "session.started") {
+    record("connection.session.started", {}, call);
     retry = 0;
     status("Listening");
     $("lamp").textContent = "Ready";
@@ -402,12 +422,14 @@ async function handle(event, call = activeCall) {
       }
     }
   } else if (event.type === "session.closed") {
+    const reasons = ["close_requested", "expired", "content", "remote_hangup", "connection_lost"];
+    record("connection.session.closed", { providerCloseReason: reasons.includes(event.reason) ? event.reason : "unknown" }, call);
     if (wanted) reconnect("remote_session_closed");
     else teardown("user_end");
   } else if (event.type === "error") {
     memoryContext.reject(event.client_event_id || event.error?.event_id);
     clockContext.reject(event.client_event_id || event.error?.event_id);
-    connectionError(new Error(event.error?.message || "Voice service error."), call);
+    connectionError(new Error(event.error?.message || "Voice service error."), call, "provider", providerError(event.error));
   }
 }
 function monitor(stream, input) {
@@ -599,7 +621,8 @@ async function start() {
   connecting = true;
   wanted = true;
   const epoch = ++connectEpoch;
-  let attempt = null;
+  let attempt = null,
+    stage = "conversation";
   const current = () => wanted && epoch === connectEpoch;
   clearTimeout(retryTimer);
   retryTimer = null;
@@ -622,6 +645,7 @@ async function start() {
     if (!current()) return;
     if (!$("chat").children.length)
       for (const turn of data.history.slice(-12)) message(turn.text, turn.role);
+    stage = "microphone";
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         autoGainControl: true,
@@ -634,7 +658,22 @@ async function start() {
       return;
     }
     mic = stream;
+    const call = attempt;
+    call.microphone = stream.getAudioTracks()[0] || null;
+    const micState = () => {
+      if (activeCall === call) record("connection.microphone", { microphoneState: telemetry.states(call).microphoneState }, call);
+    };
+    // Track events: ended = device removed or permission revoked; mute = source gave no data.
+    for (const type of ["ended", "mute", "unmute"]) call.microphone?.addEventListener(type, micState);
+    if (call.microphone) micState();
+    stage = "audio_context";
     ac = new AudioContext();
+    call.audioContext = ac;
+    // Mid-call suspend/interrupt (e.g. OS audio focus) silences the meters; teardown's close is not a fault.
+    ac.addEventListener("statechange", () => {
+      const { audioContextState } = telemetry.states(call);
+      if (activeCall === call && audioContextState) record("connection.audio_context", { audioContextState }, call);
+    });
     await ac.resume();
     if (!current()) return;
     monitor(mic, true);
@@ -645,9 +684,21 @@ async function start() {
       if (!current()) return;
       const remote = e.streams[0] || new MediaStream([e.track]);
       audio.srcObject = remote;
+      const playback = (playbackState, detail = {}) => {
+        if (attempt.playbackState === playbackState) return;
+        attempt.playbackState = playbackState;
+        record("connection.playback", { playbackState, ...detail }, attempt);
+      };
+      attempt.playback = playback;
+      playback("track_received");
+      // play() resolving means the element started playback, not that a person heard it.
       void audio
         .play()
-        .catch(() => connectionError(new Error("Tap Start to allow sound."), attempt));
+        .then(() => playback("playing"))
+        .catch((err) => {
+          playback("blocked", { errorName: errorNameOf(err) });
+          connectionError(Object.assign(new Error("Tap Start to allow sound."), { name: errorNameOf(err) }), attempt, "playback");
+        });
       monitor(remote, false);
     };
     peer.onconnectionstatechange = () => {
@@ -672,16 +723,16 @@ async function start() {
     };
     channel.onerror = () => {
       if (epoch !== connectEpoch) return;
-      record("connection.error", { ...telemetry.states(attempt), errorName: "RTCError", reason: "connection_error" }, attempt);
+      record("connection.error", { ...telemetry.states(attempt), errorName: "RTCError", reason: "connection_error", stage: "channel" }, attempt);
     };
     channel.onmessage = (e) => {
       if (epoch !== connectEpoch) return;
       try {
         const event = JSON.parse(e.data);
         if (!wanted && event.type !== "session.closed") return;
-        void handle(event, attempt).catch(err => connectionError(err, attempt));
+        void handle(event, attempt).catch(err => connectionError(err, attempt, "event"));
       } catch (err) {
-        connectionError(err, attempt);
+        connectionError(err, attempt, "event");
       }
     };
     channel.onclose = () => {
@@ -691,11 +742,13 @@ async function start() {
       if (wanted) reconnect(reason);
       else teardown(reason);
     };
+    stage = "offer";
     const offer = await peer.createOffer();
     if (!current()) return;
     await peer.setLocalDescription(offer);
     await waitForIceGathering(peer);
     if (!current()) return;
+    stage = "session";
     const result = await api("/api/live", {
       conversation,
       callId: attempt.id,
@@ -711,6 +764,7 @@ async function start() {
     session = result.session.id;
     delivery.joinSession(session);
     memoryContext.reset(result.memoryModels || []);
+    stage = "answer";
     await peer.setRemoteDescription({
       type: "answer",
       sdp: result.transport.sdp,
@@ -730,7 +784,7 @@ async function start() {
     } catch {}
   } catch (err) {
     if (!current()) return;
-    connectionError(err, attempt);
+    connectionError(err, attempt, stage);
     teardown("connection_error");
     if (wanted) {
       retry++;
@@ -903,6 +957,12 @@ const audio = document.createElement("audio");
 audio.autoplay = true;
 audio.setAttribute("playsinline", "");
 document.body.append(audio);
+// Element events after playback began (HTML Standard, "Media elements"). They are browser element
+// states, never proof of audibility; a pause during user stop (wanted = false) is not a fault.
+for (const [type, state] of [["playing", "playing"], ["pause", "paused"], ["stalled", "stalled"], ["ended", "ended"]])
+  audio.addEventListener(type, () => {
+    if (wanted && audio.srcObject) activeCall?.playback?.(state);
+  });
 const memoryStatus = document.createElement("div");
 memoryStatus.className = "meta";
 memoryStatus.setAttribute("role", "status");

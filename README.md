@@ -82,4 +82,21 @@ Use Node 26+, installed npm dependencies, a signed-in Azure CLI identity for the
 
 Diagnostics write to the existing local audit table and service log. They do not add an in-app dashboard; Graylog delivery remains unverified.
 
+When a call is silent or fails, the audit and log now show where it went wrong, tied to the browser call ID, conversation and session:
+- the failing stage and error name (microphone, audio, session, provider, playback);
+- microphone live/muted/disabled/ended, including mute and unmute during a call;
+- playback received/playing/blocked/paused/stalled/ended;
+- AudioContext state, including suspend/resume during a call;
+- Azure status and request ID;
+- provider error type/code and close reason;
+- lost task/memory update streams;
+- telemetry that was dropped or failed to send, counted per call;
+- audit rows that could not be saved;
+- background task state changes;
+- failed memory saves and failed memory sends.
+
+The newly added diagnostic fields hold only IDs, fixed state names, status codes and error names. They never hold message text, prompts, speech, device names, memory text or raw error messages. This does not change what was already stored: transcripts are still saved on purpose, and some older warnings (for example Hermes run and memory recall failures) still log the raw error message. "Playing" means the browser started the audio element, not that anyone heard it. These changes take effect only after an idle service restart and a browser reload ([ledger](ledger.md), 2026-10-14).
+
 [Configuration, decisions, failures, and verification history](ledger.md)
+
+2026-10-14 continuation: [machine handoff](CLAUDE.md), newest dated entry; logging source/test acceptance is recorded separately from still-unverified live adoption, with the earlier handoff preserved unchanged.

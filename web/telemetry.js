@@ -26,6 +26,9 @@ export class BrowserTelemetry {
     this.beacon = beacon;
     this.queue = [];
     this.sending = null;
+    // Loss accounting per originating call ID, so one call's outage is never blamed on another;
+    // each call's losses are reported as its own telemetry.gap event after the next successful post.
+    this.lost = new Map();
   }
 
   /** A client call ID correlates failures occurring before Azure assigns a live session ID. */
@@ -41,6 +44,7 @@ export class BrowserTelemetry {
   bind(call, session) {
     call.session = session;
     for (const event of this.queue) if (event.callId === call.id) event.session = session;
+    if (this.lost.has(call.id)) this.lost.get(call.id).session = session;
   }
 
   /** Snapshot identity now, never through mutable global connection state. */
@@ -48,15 +52,44 @@ export class BrowserTelemetry {
     if (!call) return;
     this.queue.push({ id: crypto.randomUUID(), conversation: call.conversation, session: call.session,
       callId: call.id, ts: Date.now(), type, detail });
-    if (this.queue.length > 100) this.queue.splice(0, this.queue.length - 100);
+    if (this.queue.length > 100)
+      for (const dropped of this.queue.splice(0, this.queue.length - 100)) {
+        const lost = this.loss(dropped);
+        // A dropped gap report still carries counts; keep them rather than losing the loss evidence.
+        if (dropped.type === "telemetry.gap") for (const key of Object.keys(dropped.detail)) lost[key] += dropped.detail[key];
+        else lost.droppedEvents++;
+      }
   }
 
-  /** Capture browser-observed states; a channel close event supplies no network root cause. */
+  /** Loss counters for the call that produced an event, keyed by its own call ID. */
+  loss(event) {
+    let lost = this.lost.get(event.callId);
+    if (!lost) this.lost.set(event.callId, lost = { conversation: event.conversation, session: event.session,
+      droppedEvents: 0, failedFlushes: 0, beaconRefused: 0 });
+    lost.session = event.session ?? lost.session;
+    return lost;
+  }
+
+  /** Count one failed delivery against every call that had events in it. */
+  lose(events, counter) {
+    for (const callId of new Set(events.map(e => e.callId)))
+      this.loss(events.find(e => e.callId === callId))[counter]++;
+  }
+
+  /** Capture browser-observed states; a channel close event supplies no network root cause.
+   * Microphone state follows MediaStreamTrack: muted = source gave no data, enabled = app mute.
+   * Playback "playing" means HTMLMediaElement.play() resolved, never that speech was audible. */
   states(call) {
+    const mic = call.microphone;
+    const microphoneState = !mic ? null : mic.readyState === "ended" ? "ended" : !mic.enabled ? "disabled" : mic.muted ? "muted" : "live";
+    const audioContextState = ["suspended", "running", "closed", "interrupted"].includes(call.audioContext?.state) ? call.audioContext.state : null;
     return {
       ...(call.peer?.connectionState ? { connectionState: call.peer.connectionState } : {}),
       ...(call.peer?.iceConnectionState ? { iceState: call.peer.iceConnectionState } : {}),
       ...(call.channel?.readyState ? { channelState: call.channel.readyState } : {}),
+      ...(microphoneState ? { microphoneState } : {}),
+      ...(call.playbackState ? { playbackState: call.playbackState } : {}),
+      ...(audioContextState ? { audioContextState } : {}),
     };
   }
 
@@ -101,15 +134,23 @@ export class BrowserTelemetry {
   flush() {
     if (this.sending) return this.sending;
     this.sending = (async () => {
+      let events = [];
       try {
         while (this.queue.length) {
           const conversation = this.queue[0].conversation;
-          const events = this.queue.filter(e => e.conversation === conversation).slice(0, 20);
+          events = this.queue.filter(e => e.conversation === conversation).slice(0, 20);
           await this.post({ conversation, events });
           const ids = new Set(events.map(e => e.id));
           this.queue = this.queue.filter(e => !ids.has(e.id));
+          // Delivery works again: report each call's own losses under that call's ID; the loop sends them next.
+          const lost = [...this.lost];
+          this.lost = new Map();
+          for (const [id, { conversation, session, ...counts }] of lost)
+            this.record({ id, conversation, session }, "telemetry.gap", counts);
         }
-      } catch {} // A transient diagnostics failure must not interrupt the call.
+      } catch {
+        this.lose(events, "failedFlushes"); // A transient diagnostics failure must not interrupt the call.
+      }
     })().finally(() => { this.sending = null; });
     return this.sending;
   }
@@ -123,7 +164,9 @@ export class BrowserTelemetry {
     const events = this.queue.filter(e => e.conversation === conversation).slice(-20);
     // Prioritize the last close evidence and remain well below Beacon's shared 64 KiB limit.
     if (events.length) {
-      try { this.beacon({ conversation, events }); } catch {}
+      let queued = false;
+      try { queued = this.beacon({ conversation, events }); } catch {}
+      if (!queued) this.lose(events, "beaconRefused");
     }
   }
 }
