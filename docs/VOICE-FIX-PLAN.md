@@ -153,6 +153,76 @@ The goal is that "how's it going" always gets the job's real state: what it is, 
 - Microsoft Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live), section "Speech and task work run independently." Check spoken confirmations against the app's own state.
 - Microsoft Learn, [Use GPT-Live for real-time voice](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live), section "Add context during the conversation." `session.thinking.append` is quiet context capped at 500 tokens per event, so keep each job's line short.
 
+## Round 2 (Oct 14): from V's Oct 13 evening calls
+
+Same rules as above. Also: the live service already runs Fixes 1 to 4, so every Fix 1 to 4 check must still pass after each new fix. Test calls use their own test conversation and `scripts/live-e2e/cleanup.mjs`, never V's conversation `ccad5a2f-2433-4361-bfc8-bba14d7973e9`.
+
+**Important limit.** GPT-Live has no turn-taking setting. The session object is strict and accepts only `model`, `instructions`, `audio.output.voice` and `delegation`. Microsoft says the live model "decides when to respond" and you steer it "with a short set of session instructions." So Fix 5 is an instruction change, proven by live tests. Keep the instructions short.
+
+## Fix 5: let V finish talking
+
+The goal is that JARVIS doesn't jump in when V pauses mid-sentence. On Oct 13 it said "I'm on it" or "Yeah" about ten times while V was still talking ("Do we have logging" / "I'm on it" / "100").
+
+**What to change.** Change the speech instructions in `src/live/policy.js` so the model waits when V's words sound unfinished (a trailing "uh", "and", "so", or a half sentence). It stays silent until V finishes, with no "I'm on it" or "Yeah" acknowledgements during a pause. Interrupting the assistant must still stop it at once (Fix 1).
+
+**Done when all of these pass** (each run is a live call with a spoken WAV via `scripts/live-e2e/`)
+
+| # | Check | How to measure | Pass |
+| --- | --- | --- | --- |
+| 5a | Waits through a mid-sentence pause | WAV: "So can you check... uh..." then 1.5 s of silence, then "what time it is in Tokyo." Run 5 times. | In 5 of 5 runs, no assistant fragment starts between the end of "uh" and the start of "what time." |
+| 5b | Answers once, after V finishes | Same runs. | Exactly one answer, which starts after the last user fragment. At most one job per run. |
+| 5c | Still answers promptly | Same runs. | The first assistant fragment after V finishes starts within 3 s in at least 4 of 5 runs. |
+| 5d | Interruption still works | Rerun the Fix 1 check 1c. | It passes. |
+
+**Sources if stuck**
+
+- Microsoft Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live), section "How GPT-Live works." The live model "decides when to respond," and you steer it with session instructions about conversational style.
+- Microsoft Learn, [Use GPT-Live for real-time voice](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live), section "Session configuration." The session object rejects unknown fields, so there is no turn-detection setting to add. `session.instructions.append` adds trusted instructions mid-call.
+
+## Fix 6: never claim something it didn't do
+
+The goal is that JARVIS says "saved," "started," "done" or "I've told Claude Code" only when the app's records show it happened. On Oct 13 it said "Got it, I've saved that preference" about a preference V never stated. The job result it was reading said nothing about a preference.
+
+**What to change**
+
+1. **Speech instructions.** Claims about memory saves, started jobs and finished jobs must come from app-confirmed state in this call. That state is the jobs list and memory-save confirmations the app already sends as quiet context. Never infer a preference V didn't state.
+2. **Confirmed saves.** If the app doesn't already tell the model when a memory save finishes, add a short quiet `session.thinking.append` when it completes.
+
+**Done when all of these pass**
+
+| # | Check | How to measure | Pass |
+| --- | --- | --- | --- |
+| 6a | No made-up saves | 5 test calls, each asking 3 questions that need a job (for example, "is logging enabled on the voice app?"). Search the assistant fragments. | Zero matches for `saved\|noted\|I'll remember\|preference` in any call. |
+| 6b | Real saves are confirmed honestly | 3 test calls: "Remember that my test color is <random word>." | It says "saved" only after the save completes (fragment time later than the memory-save completion time in the app's records), or it says it's saving. A recall afterward finds the word. `cleanup.mjs` invalidates it. |
+| 6c | No made-up job claims | In the 6a calls, list every assistant fragment that says a job was started, handed off or done. | Each one has a matching `jobs` row in that call, created before the fragment. |
+
+**Sources if stuck**
+
+- Microsoft Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live), section "Speech and task work run independently." Verify spoken confirmations against your application's authoritative state.
+- Microsoft Learn, [Delegate work in GPT-Live](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live-delegation). The application keeps the authoritative task state, and an acknowledgment doesn't prove an action succeeded.
+
+## Fix 7: handle a dropped call cleanly
+
+The goal is that after the connection drops and comes back, JARVIS doesn't resume a half-finished sentence. On Oct 13 the call dropped (peer disconnected) mid-answer and reconnected 3 s later. JARVIS's first words on the new call were the tail of the old answer ("upgrades. You decided to hold off…"). It sounded random, and JARVIS then "apologized" for it.
+
+**What to change**
+
+1. **Reconnect history.** When a new session starts with earlier conversation as `input` history, an assistant turn that was cut off must be marked as cut off, or left out. The model must not continue it.
+2. **Silent until V speaks.** A reconnected call follows the Fix 1 silent-connect rule. If a result from before the drop was cut off mid-speech, it stays available, and the app offers it once in plain words: "We got cut off. Want me to finish what I was saying?" That one line is the only allowed unprompted speech.
+
+**Done when all of these pass**
+
+| # | Check | How to measure | Pass |
+| --- | --- | --- | --- |
+| 7a | No resumed fragment | Test call: ask a question that gets a long answer, and drop the connection (close the peer connection) 2 s into the answer. Let the app reconnect. Run 3 times. | In 3 of 3 runs, the first assistant fragment of the new session is either nothing (silence until the user speaks) or the single "we got cut off" offer. It never continues the old sentence. |
+| 7b | Can get the answer back | After 7a, say "yes, finish." | The full answer is spoken, matching the job result. |
+| 7c | Fix 1 still holds | Rerun 1a and 1c. | Both pass. |
+
+**Sources if stuck**
+
+- Microsoft Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live), sections "Context management in long conversations" (keep task state in your application and supply it when needed) and "Speech and task work run independently" (a completed response doesn't mean the user heard it).
+- Microsoft Learn, [Use GPT-Live via WebRTC](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live-webrtc) for how the session and history are created.
+
 ## Sources
 
 - [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live) (Microsoft Learn)
