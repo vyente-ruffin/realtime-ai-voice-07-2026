@@ -4,7 +4,7 @@ Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, H
 
 ## Current status
 
-As of 2026-10-15, seven fixes are live on branch `claude/voice-fixes` (Fixes 1-4 also merged to `main`). Each fix was checked with live test calls against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/`). 145 regression tests pass.
+As of 2026-10-15, seven fixes are live on branch `claude/voice-fixes` (Fixes 1-4 also merged to `main`). Each fix was checked with live test calls against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/`). 153 regression tests pass.
 
 1. **No unasked results.** Connecting is silent. Results are spoken only in the call that asked for them, never after "stop".
 2. **Same JARVIS.** Background work runs on the main Hermes profile's API server (Runs API), one Hermes session per call.
@@ -14,7 +14,7 @@ As of 2026-10-15, seven fixes are live on branch `claude/voice-fixes` (Fixes 1-4
 6. **No made-up claims.** "Saved" only after the save completes; job claims only with a real job.
 7. **Dropped calls.** After a reconnect it says only "We got cut off. Want me to finish what I was saying?" and never resumes a half sentence.
 
-Also live: the 2026-10-14 logging fixes (browser playback and microphone state). Open: one test call greeted before anyone spoke (a regression check is running), and one requested result was read twice in a Fix 1 check (also seen Oct 9). The old `hermes-gateway-voice.service` is stopped and disabled.
+Also live: the 2026-10-14 logging fixes (browser playback and microphone state). Fixed 2026-10-15: quiet memory and clock updates sent before V spoke could make it speak first (1 in 10 calls); now 0 in 10. Open: one requested result was read twice in a Fix 1 check (also seen Oct 9). The old `hermes-gateway-voice.service` is stopped and disabled.
 
 ## How it works
 
