@@ -127,8 +127,11 @@ function append(type, text, delegation = null, id = crypto.randomUUID()) {
   });
 }
 let lastQuietSnapshot = "";
-const memoryContext = new MemoryContext(append, (section) => record("memory.context.accepted", section));
-const clockContext = new ClockContext(append, (clock) => record("clock.context.accepted", clock));
+const memoryContext = new MemoryContext(append, (section) => record("memory.context.accepted", section), { holdUntilUser: true });
+// Both wait for the user to speak: a quiet update into a silent call can make the model talk
+// first ("Okay. Understood." after a memory refresh; "Go ahead, what's on your mind?" right
+// after the call-start clock). The session prompt already carries the start time and memory.
+const clockContext = new ClockContext(append, (clock) => record("clock.context.accepted", clock), undefined, { holdUntilUser: true });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") clockContext.refresh();
 });
@@ -249,7 +252,11 @@ function openEvents() {
     const event = JSON.parse(data);
     if (event.type === "snapshot") event.jobs.forEach(updateJob);
     else if (event.type === "job.updated") updateJob(event.job);
-    else if (event.type === "memory.context") memoryContext.receive(event.models);
+    else if (event.type === "memory.context") {
+      memoryContext.receive(event.models);
+      // Evidence for the silent-connect check: a changed section waiting for the user to speak.
+      if (session && memoryContext.pending.size) record("memory.context.held", { sections: [...memoryContext.pending.keys()] });
+    }
     else if (event.type === "memory.state") {
       const labels = {
         saving: "Saving memories…",
@@ -403,6 +410,8 @@ async function handle(event, call = activeCall) {
       delivery.assistantSpeech(event, Date.now());
     }
     else {
+      memoryContext.userSpoke();
+      clockContext.userSpoke();
       const outcome = delivery.userSpeech(event, Date.now());
       if (outcome === "stop")
         // GPT-Live has no response-cancel event; trusted instructions change speech.

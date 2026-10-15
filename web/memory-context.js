@@ -1,9 +1,22 @@
 // Quiet per-section updates. An acknowledgment proves injection, not spoken use.
+// With holdUntilUser, updates go out only while the user is speaking: a refresh pushed into a
+// silent call made the model answer it aloud ("Okay. Understood.") before anyone spoke.
 export class MemoryContext {
-  constructor(append, accepted = () => {}) {
+  constructor(append, accepted = () => {}, { holdUntilUser = false } = {}) {
     this.append = append;
     this.accepted = accepted;
+    this.holdUntilUser = holdUntilUser;
+    this.userSpeaking = false;
     this.reset();
+  }
+  /** The user is speaking: send what is waiting, so the reply uses the newest facts. */
+  userSpoke() {
+    this.userSpeaking = true;
+    try {
+      this.flush();
+    } finally {
+      this.userSpeaking = false;
+    }
   }
   reset(models = []) {
     this.applied = new Map(models.map((model) => [model.id, model.revision]));
@@ -21,6 +34,7 @@ export class MemoryContext {
         this.pending.delete(id);
         continue;
       }
+      if (this.holdUntilUser && !this.userSpeaking) continue;
       const events = this.append("session.thinking.append", model.context);
       if (events.length) this.inflight.set(id, { model, remaining: new Set(events) });
     }

@@ -16,8 +16,8 @@ export function clockSnapshot(now = new Date(), timeZone = Intl.DateTimeFormat()
 }
 
 export class ClockContext extends MemoryContext {
-  constructor(append, accepted = () => {}, snapshot = clockSnapshot) {
-    super(append, accepted);
+  constructor(append, accepted = () => {}, snapshot = clockSnapshot, options = {}) {
+    super(append, accepted, options);
     this.snapshot = snapshot;
     this.timer = null;
   }
