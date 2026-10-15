@@ -62,7 +62,7 @@ const memory = new VoiceMemory({
     .filter(Boolean),
   store,
   onState: (state) =>
-    publish(state.conversation, { type: "memory.state", state: state.state }),
+    publish(state.conversation, { type: "memory.state", state: state.state, ...(state.saved ? { saved: state.saved } : {}) }),
   onRefresh: (models) => {
     for (const conversation of subscribers.keys())
       publish(conversation, { type: "memory.context", models });
@@ -243,7 +243,7 @@ const server = createServer(async (req, res) => {
       }
       // Test calls never join the owner's conversation, its replayed history or its memory saves.
       const c = testRun
-        ? store.createConversation(testRun)
+        ? store.createConversation(testRun, { memory: b.test.memory === true })
         : store.testConversation(b.id) ||
           (process.env.VOICE_QUALIFICATION === "1" && b.isolated
             ? store.conversation(b.id) || store.createConversation()

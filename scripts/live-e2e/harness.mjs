@@ -88,7 +88,8 @@ export class TestRun {
     const r = await fetch(`${base}/api/conversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Voice-Auth": token },
-      body: JSON.stringify({ test: { key, run: this.name } }),
+      // memory: the app saves this test call's speech like a real call (Fix 6); cleanup invalidates it.
+      body: JSON.stringify({ test: { key, run: this.name, ...(this.memory ? { memory: true } : {}) } }),
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) throw new Error(`Test conversation not created: HTTP ${r.status}`);

@@ -143,7 +143,8 @@ export class VoiceMemory {
           if (op.status === "completed") {
             this.store.memoryState(item.id, "completed");
             logger.info("Memory save completed", { id: item.id, conversation: item.conversation });
-            this.onState({ conversation: item.conversation, state: this.store.memorySaveStatus(item.conversation) });
+            // Fix 6: name what was saved, so the voice confirms only a save that happened.
+            this.onState({ conversation: item.conversation, state: this.store.memorySaveStatus(item.conversation), saved: item.content });
           } else if (["failed", "cancelled"].includes(op.status)) {
             this.store.memoryState(
               item.id,

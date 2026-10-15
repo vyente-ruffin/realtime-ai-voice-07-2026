@@ -5,6 +5,7 @@ import { MemoryContext } from "./memory-context.js";
 import { ClockContext } from "./clock-context.js";
 import { DeliveryPolicy } from "./delivery-policy.js";
 import { statusContext, plainReason } from "./status-context.js";
+import { saveConfirmation } from "./status-context.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -255,11 +256,8 @@ function openEvents() {
       const unsent = transcriptQueue.some((x) => x.conversation === conversation && x.event.type === "session.input_transcript.delta");
       const state = event.state === "saved" && unsent ? "saving" : event.state;
       memoryStatus.textContent = labels[state] || "";
-      if (state === "saved")
-        append(
-          "session.thinking.append",
-          "Silent state update, not a request: the queued user statements have completed memory processing. Do not announce this unless asked.",
-        );
+      // Fix 6: one quiet confirmation per completed save, naming what was saved.
+      if (event.saved) append("session.thinking.append", saveConfirmation(event.saved));
     } else if (
       event.type === "session.active" &&
       session &&

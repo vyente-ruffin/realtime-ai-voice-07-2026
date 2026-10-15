@@ -33,6 +33,12 @@ export class VoiceStore {
     // Live test calls get their own conversation, labelled with the test run that made it.
     if (!this.db.prepare("PRAGMA table_info(conversations)").all().some((c) => c.name === "test"))
       this.db.exec("ALTER TABLE conversations ADD COLUMN test TEXT");
+    // Fix 6: a test call may opt in to real memory saves (cleanup invalidates them), and each save
+    // records when it completed, so a spoken "saved" can be checked against the app's records.
+    if (!this.db.prepare("PRAGMA table_info(conversations)").all().some((c) => c.name === "test_memory"))
+      this.db.exec("ALTER TABLE conversations ADD COLUMN test_memory INTEGER DEFAULT 0");
+    if (!this.db.prepare("PRAGMA table_info(retention)").all().some((c) => c.name === "completed"))
+      this.db.exec("ALTER TABLE retention ADD COLUMN completed INTEGER");
   }
   close() {
     this.db.close();
@@ -42,11 +48,11 @@ export class VoiceStore {
       ? this.db.prepare("SELECT * FROM conversations WHERE id=?").get(id)
       : null;
   }
-  createConversation(test = null) {
+  createConversation(test = null, { memory = false } = {}) {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO conversations(id,created,active_session,test) VALUES(?,?,NULL,?)")
-      .run(id, Date.now(), test);
+      .prepare("INSERT INTO conversations(id,created,active_session,test,test_memory) VALUES(?,?,NULL,?,?)")
+      .run(id, Date.now(), test, test && memory ? 1 : 0);
     return this.conversation(id);
   }
   /** A test conversation, or null for the owner's own conversations. */
@@ -256,7 +262,7 @@ export class VoiceStore {
     if (!content.trim()) return;
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO retention VALUES(?,?,?,?,?,0,?,NULL)")
+      .prepare("INSERT INTO retention(id,conversation,content,state,operation,attempts,next_at,error) VALUES(?,?,?,?,?,0,?,NULL)")
       .run(id, conversation, content, "pending", id, Date.now());
     return id;
   }
@@ -267,8 +273,8 @@ export class VoiceStore {
       )
       .all(Date.now() - 3000);
     for (const { conversation } of conversations) {
-      // Test speech is never the owner's memory.
-      if (this.testConversation(conversation)) {
+      // Test speech is never the owner's memory, unless the test run asked for real saves.
+      if (this.testConversation(conversation) && !this.testConversation(conversation).test_memory) {
         this.db.prepare("UPDATE fragments SET retained=1 WHERE conversation=? AND role='user' AND retained=0").run(conversation);
         continue;
       }
@@ -305,11 +311,12 @@ export class VoiceStore {
       .get(Date.now());
   }
   memoryState(id, state, error = null, delay = 0) {
+    const now = Date.now();
     this.db
       .prepare(
-        "UPDATE retention SET state=?,error=?,attempts=attempts+1,next_at=? WHERE id=?",
+        "UPDATE retention SET state=?,error=?,attempts=attempts+1,next_at=?,completed=? WHERE id=?",
       )
-      .run(state, error, Date.now() + delay, id);
+      .run(state, error, now + delay, state === "completed" ? now : null, id);
   }
   memorySaveStatus(conversation) {
     const rows = this.db.prepare("SELECT DISTINCT state FROM retention WHERE conversation=?").all(conversation);

@@ -68,3 +68,10 @@ export function statusContext(jobs, now = Date.now()) {
   const lines = shown.map((j) => `- ${statusLine(j, now)}`);
   return `Task status from the app (silent update, not a request to speak; use it only when the user asks about status): ${head}${lines.length ? `\n${lines.join("\n")}` : ""}`;
 }
+
+/** Fix 6: quiet confirmation of a memory save the app completed, naming what was saved. This is
+ * the only thing that lets the voice say something is saved. */
+export function saveConfirmation(saved) {
+  const words = clip(String(saved || "").replace(/^User said:\s*/gm, ""), 300);
+  return `Memory save confirmed by the app (silent update, not a request to speak): the user's own words "${words}" are now saved in long-term memory. Only an update like this proves a save. Do not announce it; if the user asks whether it is saved, say yes.`;
+}

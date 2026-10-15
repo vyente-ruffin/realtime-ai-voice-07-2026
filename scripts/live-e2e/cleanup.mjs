@@ -38,6 +38,12 @@ async function list(params) {
   }
 }
 
+/** Hindsight recall text for a query (proof a saved test word is findable before cleanup). */
+export async function recallText(query) {
+  const r = await hindsight("/memories/recall", { method: "POST", body: { query, budget: "mid", max_tokens: 2048 } });
+  return (r.results || []).map((x) => x.text || "").join("\n");
+}
+
 /** Working directory for this run's `hermes -z` calls, so cleanup can find their sessions. */
 export function oneshotDir(run) {
   const dir = resolve(tmpdir(), `jarvis-e2e-${run}`);
