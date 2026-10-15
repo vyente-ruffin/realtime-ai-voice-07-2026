@@ -4,12 +4,17 @@ Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, H
 
 ## Current status
 
-Live since 2026-10-09 (merged to main 2026-10-13) after four fixes, each checked live against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/fix1.md`–`fix4.md`). 93 regression tests pass.
+As of 2026-10-15, seven fixes are live on branch `claude/voice-fixes` (Fixes 1-4 also merged to `main`). Each fix was checked with live test calls against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/`). 145 regression tests pass.
 
-1. **No unasked results.** Connecting is silent. Finished task results are spoken only in the call that asked for them, never after you say stop.
-2. **Same JARVIS.** Background work runs on the main Hermes profile through its API server (Runs API), not a separate voice worker, so Hermes updates apply without restarting the voice app.
-3. **Memory answers.** Questions about you are answered from memory: prepared summaries first, otherwise a Hermes memory lookup. Answers start within 10 seconds, and follow-up questions work.
-4. **Honest status.** "How's that going?" gets the task's name, state, time elapsed, latest step, and a plain reason if it failed.
+1. **No unasked results.** Connecting is silent. Results are spoken only in the call that asked for them, never after "stop".
+2. **Same JARVIS.** Background work runs on the main Hermes profile's API server (Runs API), one Hermes session per call.
+3. **Memory answers.** Questions about V are answered from memory, starting within 10 s, with follow-ups.
+4. **Honest status.** Task name, state, minutes, latest step, plain failure reason.
+5. **Let V finish (partial).** Jumps in during mid-sentence pauses 2 in 10 calls (was 4 in 5). GPT-Live has no turn-taking setting, so this is steered by instructions only.
+6. **No made-up claims.** "Saved" only after the save completes; job claims only with a real job.
+7. **Dropped calls.** After a reconnect it says only "We got cut off. Want me to finish what I was saying?" and never resumes a half sentence.
+
+Also live: the 2026-10-14 logging fixes (browser playback and microphone state). Open: one test call greeted before anyone spoke (a regression check is running), and one requested result was read twice in a Fix 1 check (also seen Oct 9). The old `hermes-gateway-voice.service` is stopped and disabled.
 
 ## How it works
 
