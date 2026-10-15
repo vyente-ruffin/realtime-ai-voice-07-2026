@@ -38,11 +38,33 @@ export async function until(fn, { timeout = 60000, every = 500, what = "conditio
 const mixer = () => {
   // Keep every peer connection the page makes so a test can drop the call like a network loss.
   window.__pcs = [];
+  // Wire log: type and ids of every data-channel event each way (never content), so a run can
+  // prove each append the page sent and each ack it received has its own audit row.
+  window.__wire = [];
   const Peer = window.RTCPeerConnection;
   window.RTCPeerConnection = class extends Peer {
     constructor(...args) {
       super(...args);
       window.__pcs.push(this);
+    }
+    createDataChannel(...args) {
+      const channel = super.createDataChannel(...args);
+      const send = channel.send.bind(channel);
+      channel.send = (text) => {
+        try {
+          const e = JSON.parse(text);
+          window.__wire.push({ dir: "out", at: Date.now(), type: e.type, event_id: e.event_id || null, delegation_id: e.delegation_id || null });
+        } catch {}
+        return send(text);
+      };
+      channel.addEventListener("message", (m) => {
+        try {
+          const e = JSON.parse(m.data);
+          if (/appended$|^error$|delegation/.test(e.type))
+            window.__wire.push({ dir: "in", at: Date.now(), type: e.type, client_event_id: e.client_event_id || e.error?.event_id || null, delegation_id: e.delegation?.id || null });
+        } catch {}
+      });
+      return channel;
     }
   };
   const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -199,6 +221,13 @@ export class Call {
     this.session = body.session.id;
     await this.page.waitForFunction((n) => window.__voiceLabEvents.filter((e) => e.type === "session.started").length > n, started, { timeout });
     return { previous: before, session: this.session, droppedAt, reconnectedAt: Date.now() };
+  }
+  async wire() {
+    return this.page.evaluate(() => window.__wire);
+  }
+  /** The telemetry call id of a session, from the server's session.started audit row. */
+  callId(session = this.session) {
+    return query("SELECT json_extract(payload,'$.callId') AS id FROM audit WHERE kind='session.started' AND json_extract(payload,'$.session')=?", session)[0]?.id;
   }
   async events(type) {
     return this.page.evaluate((t) => window.__voiceLabEvents.filter((e) => !t || e.type === t), type);

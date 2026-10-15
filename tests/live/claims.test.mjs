@@ -46,7 +46,7 @@ test("6b: a remember request is not handed off; 'saved' only after the app's con
 
 test("6b: the browser sends that confirmation per completed save, not the old vague notice", () => {
   const page = readFileSync(join(root, "web/live.js"), "utf8");
-  assert.match(page, /if \(event\.saved\) append\("session\.thinking\.append", saveConfirmation\(event\.saved\)\);/);
+  assert.match(page, /if \(event\.saved\) append\("session\.thinking\.append", saveConfirmation\(event\.saved\), null, undefined, "save-confirmation"\);/);
   assert.doesNotMatch(page, /completed memory processing/);
   const server = readFileSync(join(root, "src/live/server.js"), "utf8");
   assert.match(server, /type: "memory\.state", state: state\.state, \.\.\.\(state\.saved \? \{ saved: state\.saved \} : \{\}\)/);

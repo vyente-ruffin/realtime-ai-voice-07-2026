@@ -56,6 +56,8 @@ export class DeliveryPolicy {
    * cut-off answer was the model's own. Offer to finish it once, at the first pause after reconnect. */
   cutOff(job, now) {
     this.cutoff = { job: job || null, at: now, asked: false, finish: false };
+    // A yes to the waiting line approved the first reading, not a second one after the drop.
+    if (job) this.approved.delete(job);
     this.activitySincePush = true;
   }
   /** Fix 7: a handoff made by the user's yes to the cut-off offer is not new work: the app already

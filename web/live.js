@@ -117,21 +117,54 @@ function chunks(text) {
   if (part) out.push(part);
   return out;
 }
-function append(type, text, delegation = null, id = crypto.randomUUID()) {
+// Send audit: every append and its acknowledgment leaves an audit row for this call, with the
+// purpose and content length, never the content itself (it can hold personal memories).
+const sentEvents = new Map();
+const auditId = (value) => (typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value) ? value : null);
+/** An app decision (delivery, consent, stop) as an audit row tied to this call and session. */
+function auditApp(kind, ids = {}) {
+  void api("/api/audit", { conversation, session, callId: activeCall?.id, kind, at: Date.now(), ...ids }).catch(showError);
+}
+function modelAudit(type, detail, call = activeCall) {
+  if (!call) return;
+  telemetry.record(call, type, detail);
+  void telemetry.flush();
+}
+function append(type, text, delegation = null, id = crypto.randomUUID(), purpose = "instructions") {
   const parts = chunks(text);
   if (dc?.readyState !== "open") return [];
   return parts.map((content, i) => {
     const event_id = `${id}_${i}`;
     send({ type, event_id, delegation_id: delegation, content });
+    const sentAt = Date.now();
+    const delegationId = auditId(delegation);
+    sentEvents.set(event_id, { purpose, delegationId, sentAt, call: activeCall });
+    if (sentEvents.size > 500) sentEvents.delete(sentEvents.keys().next().value);
+    modelAudit("model.send", { eventType: type, eventId: event_id, delegationId, purpose, contentLength: content.length, sentAt });
     return event_id;
   });
 }
+/** A provider acknowledgment (or rejection) of an append, matched to its send and its call. */
+function auditAck(event, call) {
+  const eventId = auditId(event.client_event_id || event.error?.event_id);
+  if (!eventId) return;
+  const sent = sentEvents.get(eventId);
+  const ackAt = Date.now();
+  modelAudit(event.type === "error" ? "model.rejected" : "model.ack", {
+    ...(event.type === "error" ? {} : { eventType: event.type }),
+    eventId,
+    delegationId: sent?.delegationId ?? null,
+    purpose: sent?.purpose || "unknown",
+    ackAt,
+    ...(sent ? { sentAt: sent.sentAt, ackMs: Math.max(0, ackAt - sent.sentAt) } : {}),
+  }, sent?.call || call);
+}
 let lastQuietSnapshot = "";
-const memoryContext = new MemoryContext(append, (section) => record("memory.context.accepted", section), { holdUntilUser: true });
+const memoryContext = new MemoryContext((type, text) => append(type, text, null, undefined, "memory"), (section) => record("memory.context.accepted", section), { holdUntilUser: true });
 // Both wait for the user to speak: a quiet update into a silent call can make the model talk
 // first ("Okay. Understood." after a memory refresh; "Go ahead, what's on your mind?" right
 // after the call-start clock). The session prompt already carries the start time and memory.
-const clockContext = new ClockContext(append, (clock) => record("clock.context.accepted", clock), undefined, { holdUntilUser: true });
+const clockContext = new ClockContext((type, text) => append(type, text, null, undefined, "clock"), (clock) => record("clock.context.accepted", clock), undefined, { holdUntilUser: true });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") clockContext.refresh();
 });
@@ -147,7 +180,7 @@ function quietJobs() {
   statusCheckedAt = Date.now();
   const snapshot = statusContext([...jobs.values()], Date.now());
   if (snapshot === lastQuietSnapshot) return;
-  if (!append("session.thinking.append", snapshot).length) return;
+  if (!append("session.thinking.append", snapshot, null, undefined, "job-status").length) return;
   lastQuietSnapshot = snapshot;
   record("status.context", { text: snapshot });
 }
@@ -268,7 +301,7 @@ function openEvents() {
       const state = event.state === "saved" && unsent ? "saving" : event.state;
       memoryStatus.textContent = labels[state] || "";
       // Fix 6: one quiet confirmation per completed save, naming what was saved.
-      if (event.saved) append("session.thinking.append", saveConfirmation(event.saved));
+      if (event.saved) append("session.thinking.append", saveConfirmation(event.saved), null, undefined, "save-confirmation");
     } else if (
       event.type === "session.active" &&
       session &&
@@ -355,15 +388,18 @@ function transcript(event) {
 async function delegate(event) {
   const delegation = event.delegation;
   if (!delegation?.id || delegation.target !== "client") return;
+  auditApp("delegation.received", { delegation: delegation.id });
   if (delivery.cutOffReply(Date.now())) {
     // Fix 7: "yes, finish" handed off would re-run the task and read the result twice (seen live).
     append(
       "session.thinking.append",
       "No backend task: the app already has the cut-off answer and supplies it now. Say nothing about this handoff.",
       delegation.id,
+      undefined,
+      "cut-off",
     );
     record("delegation.cut_off_reply");
-    void api("/api/audit", { conversation, session, kind: "delegation.cut_off_reply", at: Date.now() }).catch(showError);
+    auditApp("delegation.cut_off_reply", { delegation: delegation.id });
     return;
   }
   try {
@@ -383,11 +419,15 @@ async function delegate(event) {
       "session.commentary.append",
       "I could not submit that task. Please try again.",
       delegation.id,
+      undefined,
+      "job-status",
     );
   }
 }
 async function handle(event, call = activeCall) {
   record(event.type, { ...event });
+  if (["session.thinking.appended", "session.commentary.appended", "session.instructions.appended"].includes(event.type) ||
+    (event.type === "error" && (event.client_event_id || event.error?.event_id))) auditAck(event, call);
   if (event.type === "session.started") {
     record("connection.session.started", {}, call);
     retry = 0;
@@ -413,15 +453,20 @@ async function handle(event, call = activeCall) {
       memoryContext.userSpoke();
       clockContext.userSpoke();
       const outcome = delivery.userSpeech(event, Date.now());
+      // A result the user stopped is no longer being read: a later drop must not offer it back.
+      if (outcome === "stop") readingResult = null;
       if (outcome === "stop")
         // GPT-Live has no response-cancel event; trusted instructions change speech.
         append(
           "session.instructions.append",
           "The user just told you to stop. Stop speaking immediately. Say nothing more, not even an acknowledgment, until the user speaks to you again.",
+          null,
+          undefined,
+          "instructions",
         );
       if (outcome) {
         record(`delivery.${outcome}`);
-        void api("/api/audit", { conversation, session, kind: `delivery.${outcome}`, at: Date.now() }).catch(showError);
+        auditApp(`delivery.${outcome}`);
       }
     }
   } else if (event.type === "session.delegation.created") void delegate(event);
@@ -530,18 +575,21 @@ async function deliver() {
   );
   if (delivery.settled) {
     record(`delivery.${delivery.settled}`);
-    void api("/api/audit", { conversation, session, kind: `delivery.${delivery.settled}`, at: now }).catch(showError);
+    auditApp(`delivery.${delivery.settled}`);
   }
   if (!step) return;
   if (step.kind === "waiting") {
     const ids = append(
       "session.commentary.append",
       `Say exactly this one short sentence aloud, then stop and wait for the user: "${step.text}" Do not name, describe or guess these results. The app supplies each one only after the user says yes; if they do, say only a brief okay and wait for it. Never answer it from memory or the earlier conversation.`,
+      null,
+      undefined,
+      "consent",
     );
     if (!ids.length) return;
     delivery.sent(step, now);
     record("result.waiting.offered", { jobs: step.jobs.map((j) => j.id) });
-    void api("/api/audit", { conversation, session, kind: "result.waiting_offered", at: now }).catch(showError);
+    auditApp("result.waiting_offered");
     return;
   }
   if (step.kind === "cutoff" || step.kind === "finish") {
@@ -550,12 +598,15 @@ async function deliver() {
       step.kind === "cutoff"
         ? `Say exactly this one short sentence aloud, then stop and wait for the user: "${step.text}" Do not continue, repeat or summarise the cut-off answer now. If the user says yes, say only "Okay" and then nothing more until the app sends the answer a moment later: never retell, guess or make it up yourself.`
         : "The user said yes: give your complete answer to their last question again now, from the start. The dropped connection cut it off, so they did not hear it.",
+      null,
+      undefined,
+      "cut-off",
     );
     if (!ids.length) return;
     delivery.sent(step, now);
     const kind = step.kind === "cutoff" ? "result.cut_off_offered" : "result.cut_off_finished";
     record(kind);
-    void api("/api/audit", { conversation, session, kind, at: now }).catch(showError);
+    auditApp(kind);
     return;
   }
   const job = step.job;
@@ -597,6 +648,7 @@ async function deliver() {
           `A background task ended and is no longer running. Tell the user its result briefly at a natural pause, once: ${plainReason(job)}`,
       delegation,
       offer.event,
+      "result",
     );
     const pending = {
       job: job.id,
@@ -958,6 +1010,9 @@ async function typed() {
   append(
     "session.thinking.append",
     `The user typed: ${text}. Hermes is working on it.`,
+    null,
+    undefined,
+    "job-status",
   );
 }
 $("startBtn").onclick = () => {

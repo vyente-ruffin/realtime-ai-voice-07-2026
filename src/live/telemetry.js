@@ -10,6 +10,8 @@ const types = new Set([
   "connection.error", "connection.page.hidden", "connection.page.exit", "call.stats", "call.ended",
   "connection.microphone", "connection.playback", "connection.session.started", "connection.session.closed",
   "connection.updates.lost", "connection.audio_context", "telemetry.gap",
+  // Send audit: one row per append sent to GPT-Live and per acknowledgment or rejection of one.
+  "model.send", "model.ack", "model.rejected",
 ]);
 // Provider error type/code are documented identifiers (GPT-Live reference, "Error handling"); never the message.
 const providerIdentifier = value => typeof value === "string" && /^[a-z0-9_.]{1,100}$/.test(value);
@@ -38,6 +40,13 @@ const fields = {
   commandCorrelated: value => typeof value === "boolean",
   providerCloseReason: choices(["close_requested", "expired", "content", "remote_hangup", "connection_lost", "unknown"]),
   droppedEvents: number, failedFlushes: number, beaconRefused: number,
+  // Send audit fields: identifiers, a purpose label and sizes/times only; never the content text.
+  eventType: choices(["session.thinking.append", "session.commentary.append", "session.instructions.append",
+    "session.thinking.appended", "session.commentary.appended", "session.instructions.appended"]),
+  eventId: identifier,
+  delegationId: value => value === null || identifier(value),
+  purpose: choices(["memory", "clock", "job-status", "result", "consent", "cut-off", "save-confirmation", "instructions", "unknown"]),
+  contentLength: number, sentAt: number, ackAt: number, ackMs: number,
 };
 
 /** Validate the entire batch before any durable write (RFC 9457 at the HTTP boundary). */

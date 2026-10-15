@@ -186,7 +186,7 @@ test("4a/4b: the browser sends the status context on every change and refreshes 
   assert.match(live, /import \{ statusContext, plainReason \} from "\.\/status-context\.js"/);
   assert.match(live, /A background task ended and is no longer running\. Tell the user its result briefly at a natural pause, once: \$\{plainReason\(job\)\}/, "an ended task's delivery never sounds like it is still running, and never carries raw error text");
   assert.match(live, /statusContext\(\[\.\.\.jobs\.values\(\)\], Date\.now\(\)\)/);
-  assert.match(live, /append\("session\.thinking\.append", snapshot\)/);
+  assert.match(live, /append\("session\.thinking\.append", snapshot, null, undefined, "job-status"\)/);
   assert.match(live, /delivery\.heard\(now\);\n\s*if \(now - statusCheckedAt > 2000\) quietJobs\(\);/, "minutes are current when the user asks");
   assert.doesNotMatch(live, /setInterval\(quietJobs/, "no timed resend: it made the model announce progress unasked");
   assert.doesNotMatch(live, /if \(!session \|\| !jobs\.size\) return;/, "an empty job list still says nothing is running");

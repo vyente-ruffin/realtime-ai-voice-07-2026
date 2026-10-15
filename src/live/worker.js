@@ -107,7 +107,7 @@ export class VoiceWorker {
   }
   update(id, state, fields) {
     const job = this.store.updateJob(id, state, fields);
-    lifecycle(job);
+    lifecycle(job, this.store);
     this.onUpdate(job);
     return job;
   }
@@ -196,6 +196,7 @@ export class VoiceWorker {
     }
     this.onUpdate(this.store.setRun(job.id, started.run_id, session));
     logger.info("Hermes run started", { id: job.id, run: started.run_id, session });
+    lifecycle(this.store.job(job.id), this.store, "job.run_started");
     // A cancel that landed before the run id existed still has to reach Hermes.
     if (this.store.job(job.id).state === "cancelled") await this.stopRun(started.run_id);
     return this.follow(this.store.job(job.id));
@@ -333,7 +334,7 @@ export class VoiceWorker {
     if (!active.includes(job.state)) return job;
     for (const [key, p] of this.permissions) if (p.job === job.id) this.permissions.delete(key);
     const updated = this.store.updateJob(job.id, "cancelled", { error: reasons.cancelled });
-    lifecycle(updated);
+    lifecycle(updated, this.store);
     if (job.run_id) void this.stopRun(job.run_id);
     this.onUpdate(updated);
     return updated;
@@ -341,11 +342,20 @@ export class VoiceWorker {
   stop() {}
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** One correlated line per task state change; ids and state only, never the request or result. */
-function lifecycle(job) {
+/** One correlated line and audit row per task state change; ids and state only, never the
+ * request or result. The audit row ties the voice delegation to the Hermes run id. */
+function lifecycle(job, store, kind = "job.state") {
   if (!job) return;
-  logger.info("Background task state", {
-    service: "jarvis-voice", id: job.id, conversation: job.conversation, session: job.session,
-    state: job.state, run: job.run_id || null, ageMs: Date.now() - job.created,
+  const ids = {
+    job: job.id, delegation: job.delegation, session: job.session, state: job.state,
+    run: job.run_id || null, hermesSession: job.hermes_session || null, ageMs: Date.now() - job.created,
+  };
+  logger.info(kind === "job.state" ? "Background task state" : "Background task run started", {
+    service: "jarvis-voice", id: job.id, conversation: job.conversation, ...ids,
   });
+  try {
+    store?.audit(job.conversation, kind, ids);
+  } catch (err) {
+    logger.warn("Voice audit write failed", { service: "jarvis-voice", conversation: job.conversation, kind, errorName: err?.name || "Error" });
+  }
 }

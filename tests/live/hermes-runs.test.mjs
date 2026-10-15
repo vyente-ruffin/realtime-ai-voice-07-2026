@@ -335,3 +335,24 @@ test("2g: /healthz is ready only when Hermes and Hindsight both answer, and name
   hindsight.state.up = true;
   assert.equal((await health()).status, "ready");
 });
+
+test("send audit: each job state change leaves an audit row tying delegation, job and Hermes run id, without the request or result", async (t) => {
+  const { store, hermes, worker, conversation, job } = setup(t);
+  const a = job("item_trace", "user: PRIVATE_REQUEST_SENTINEL");
+  const done = worker.kick();
+  await until(() => hermes.runs.size === 1, "run started");
+  hermes.complete("run_1", "PRIVATE_RESULT_SENTINEL");
+  await done;
+  const rows = store.db.prepare("SELECT kind,payload FROM audit WHERE conversation=? AND kind LIKE 'job.%' ORDER BY id").all(conversation)
+    .map((r) => ({ kind: r.kind, ...JSON.parse(r.payload) }));
+  assert.deepEqual(rows.map((r) => [r.kind, r.state]), [["job.state", "running"], ["job.run_started", "running"], ["job.state", "completed"]]);
+  for (const r of rows) {
+    assert.equal(r.job, a.id);
+    assert.equal(r.delegation, "item_trace");
+    assert.equal(r.session, "call-1");
+  }
+  assert.equal(rows[1].run, "run_1");
+  assert.equal(rows[2].run, "run_1");
+  assert.equal(rows[2].hermesSession, `voice-${conversation}-call-1`);
+  assert.equal(store.db.prepare("SELECT COUNT(*) n FROM audit WHERE payload LIKE '%PRIVATE_%'").get().n, 0);
+});

@@ -460,8 +460,9 @@ const server = createServer(async (req, res) => {
           .join("\n"),
       );
       logger.info("Background task queued", {
-        service: "jarvis-voice", id: job.id, conversation: conversation.id, session: b.session,
+        service: "jarvis-voice", id: job.id, conversation: conversation.id, session: b.session, delegation: b.delegation,
       });
+      auditOrWarn(conversation.id, "job.queued", { job: job.id, delegation: job.delegation, session: job.session, state: job.state });
       json(res, 202, { job: publicJob(job) });
       publish(conversation.id, { type: "job.updated", job: publicJob(job) });
       void worker.kick();
@@ -487,13 +488,18 @@ const server = createServer(async (req, res) => {
           return;
         }
         const offer = store.offer(job, b.session);
+        auditOrWarn(conversation.id, offer ? "delivery.offered" : "delivery.offer_refused", { job: job.id, session: b.session, event: offer?.event ?? null });
         json(res, 200, { offer, job: publicJob(job) });
         return;
       }
-      if (b.action === "accepted")
-        store.deliveryAck(job.id, b.session, b.event);
-      else if (b.action === "not_sent")
+      const event = typeof b.event === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(b.event) ? b.event : null;
+      if (b.action === "accepted") {
+        const injected = store.deliveryAck(job.id, b.session, b.event);
+        auditOrWarn(conversation.id, injected ? "delivery.injected" : "delivery.ack_ignored", { job: job.id, session: b.session, event });
+      } else if (b.action === "not_sent") {
         store.releaseOffer(job.id, b.session, b.event);
+        auditOrWarn(conversation.id, "delivery.released", { job: job.id, session: b.session, event });
+      }
       else if (b.action === "playback_observed") {
         // The event is the server-issued offer id (result_<uuid>); never store arbitrary client text.
         if (typeof b.event !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(b.event)) {
@@ -532,9 +538,12 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/audit") {
+      // Correlation identifiers only (call, job, delegation); never free text.
+      const id = (value) => (typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value) ? value : undefined);
       store.audit(conversation.id, String(b.kind).slice(0, 100), {
         session: b.session,
         at: b.at,
+        callId: id(b.callId), job: id(b.job), delegation: id(b.delegation),
       });
       json(res, 200, { saved: true });
       return;
