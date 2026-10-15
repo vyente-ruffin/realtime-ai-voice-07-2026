@@ -14,6 +14,9 @@ const NO = /\b(no|nope|not now|later|skip|don'?t)\b/i;
 const CONSENT_SETTLE_MS = 1200;
 const COUNTS = ["", "One thing", "Two things", "Three things", "Four things", "Five things"];
 
+// Fix 7: the one line allowed unprompted after a dropped call that cut an answer off.
+export const CUTOFF_LINE = "We got cut off. Want me to finish what I was saying?";
+
 export function waitingLine(count) {
   return `${COUNTS[count] || "A few things"} finished while you were away. Want ${count === 1 ? "it" : "them"}?`;
 }
@@ -28,6 +31,9 @@ export class DeliveryPolicy {
     this.asked = new Set(); // earlier-call jobs already covered by a waiting line
     this.approved = new Set(); // earlier-call jobs the user said yes to
     this.awaitingConsent = false;
+    this.question = null; // what the pending yes/no answers: "waiting" or "cutoff"
+    this.cutoff = null; // Fix 7: { job, at, asked, finish } after a drop cut an answer off
+    this.cutOffYesAt = -Infinity; // when the user said yes to finishing it
     this.consentParts = []; // user speech after the waiting line: [start_ms, end_ms, text]
     this.lineEndMs = 0; // where the waiting line ended on the session clock
     this.lastUserAt = 0;
@@ -45,6 +51,21 @@ export class DeliveryPolicy {
     this.sessions.add(id);
     this.spoken = []; // provider audio clocks restart per session
     this.heardSpans = [];
+  }
+  /** Fix 7: the connection dropped mid-answer. `job` is the result being read, or null when the
+   * cut-off answer was the model's own. Offer to finish it once, at the first pause after reconnect. */
+  cutOff(job, now) {
+    this.cutoff = { job: job || null, at: now, asked: false, finish: false };
+    this.activitySincePush = true;
+  }
+  /** Fix 7: a handoff made by the user's yes to the cut-off offer is not new work: the app already
+   * has the answer. True while that yes is being said and for 10 s after it settles. */
+  cutOffReply(now) {
+    if (this.awaitingConsent && this.question === "cutoff") {
+      const text = this.consentParts.map((part) => part[2]).join("").trim();
+      return YES.test(text) && !NO.test(text) && text.split(/\s+/).length <= 6;
+    }
+    return now - this.cutOffYesAt < 10000;
   }
   fromThisCall(job) {
     return this.sessions.has(job.session);
@@ -124,17 +145,33 @@ export class DeliveryPolicy {
     if (!/\w/.test(text)) return null;
     this.awaitingConsent = false;
     this.consentParts = [];
+    const question = this.question;
+    this.question = null;
     if (YES.test(text) && !NO.test(text) && text.split(/\s+/).length <= 6) {
-      for (const id of this.asked) this.approved.add(id);
+      if (question === "cutoff" && this.cutoff) {
+        this.cutOffYesAt = now;
+        if (this.cutoff.job) this.approved.add(this.cutoff.job);
+        else this.cutoff.finish = true;
+      } else for (const id of this.asked) this.approved.add(id);
       return "consent";
     }
+    if (question === "cutoff") this.cutoff = null; // declined: the result stays cut off, never pushed
     return "declined";
   }
   /** Decide the single next spoken step, or null. Call only while connected. */
   next(jobs, now, assistantSpeaking) {
     this.settled = this.settleConsent(now);
+    const cut = this.cutoff;
+    // Fix 7: after "yes" the cut-off answer goes at once, without waiting for a pause; a wait
+    // left the voice room to retell it from memory (seen live).
+    if (!this.locked && cut?.finish) return { kind: "finish" };
+    if (!this.locked && cut?.job && this.approved.has(cut.job)) {
+      const job = jobs.find((j) => j.id === cut.job && j.delivery === "cut_off");
+      if (job) return { kind: "result", job, resume: true };
+    }
     if (this.locked || !this.activitySincePush || now < this.holdUntil) return null;
     if (!this.paused(now, assistantSpeaking)) return null;
+    if (cut && !cut.asked && !this.awaitingConsent && now - cut.at >= PAUSE_MS) return { kind: "cutoff", text: CUTOFF_LINE };
     const waiting = jobs
       .filter((j) => FINAL.includes(j.state) && (j.delivery || "available") === "available")
       .sort((a, b) => a.updated - b.updated);
@@ -153,8 +190,17 @@ export class DeliveryPolicy {
   sent(step, now) {
     this.pushedAt = now;
     this.activitySincePush = false;
+    if (step.kind === "cutoff") {
+      this.cutoff.asked = true;
+      this.question = "cutoff";
+      this.awaitingConsent = true;
+      this.consentParts = [];
+      this.lineEndMs = 0;
+    }
+    if (step.kind === "finish" || step.resume) this.cutoff = null;
     if (step.kind === "waiting") {
       for (const j of step.jobs) this.asked.add(j.id);
+      this.question = "waiting";
       this.awaitingConsent = true; // the user's next turn answers it
       this.consentParts = [];
       this.lineEndMs = 0;

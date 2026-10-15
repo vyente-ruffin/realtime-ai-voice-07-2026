@@ -7,7 +7,7 @@ AzureLive.prototype.accessToken = async () => "synthetic-test-only";
 AzureLive.prototype.session = async function (options) {
   if (options.sdp.includes("synthetic-fail"))
     throw Object.assign(new Error("Azure could not start voice (503)."), { providerStatus: 503, providerRequestId: "synthetic-request" });
-  return { session: { id: randomUUID(), testInstructions: options.instructions }, transport: { sdp: "v=0\r\n" } };
+  return { session: { id: randomUUID(), testInstructions: options.instructions, testHistory: options.history }, transport: { sdp: "v=0\r\n" } };
 };
 VoiceMemory.prototype.refresh = async function () { this.prepared = []; };
 VoiceMemory.prototype.context = () => "Synthetic fixture; no personal memory.";

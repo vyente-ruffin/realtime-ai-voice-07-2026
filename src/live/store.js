@@ -218,7 +218,8 @@ export class VoiceStore {
       .get(job.id);
     // Acknowledgment means model context injection, never proof of heard speech.
     // Ambiguous delivery after a disconnect remains visible; do not repeat it blindly.
-    if (previous && previous.state !== "available") return null;
+    // Fix 7: a result cut off by a dropped connection may be offered again, once, when asked.
+    if (previous && !["available", "cut_off"].includes(previous.state)) return null;
     const event = `result_${randomUUID()}`;
     this.db
       .prepare(
@@ -234,6 +235,28 @@ export class VoiceStore {
           "UPDATE deliveries SET state='injected',updated=? WHERE job=? AND session=? AND event=? AND state='offered'",
         )
         .run(Date.now(), job, session, event).changes > 0
+    );
+  }
+  /** Fix 7: the connection dropped while this session was speaking. Record it so every later
+   * history replay marks that answer as cut off; a result being read then becomes "cut_off":
+   * never pushed again on its own, but available once when the user asks for it. */
+  cutOff(conversation, session, job = null) {
+    let result = null;
+    if (job) {
+      const ok = this.db
+        .prepare("UPDATE deliveries SET state='cut_off',updated=? WHERE job=? AND session=? AND state IN ('offered','injected') AND job IN (SELECT id FROM jobs WHERE conversation=?)")
+        .run(Date.now(), job, session, conversation).changes > 0;
+      if (ok) result = job;
+    }
+    this.audit(conversation, "session.cut_off", { session, job: result });
+    return result;
+  }
+  cutOffSessions(conversation) {
+    return new Set(
+      this.db
+        .prepare("SELECT payload FROM audit WHERE conversation=? AND kind='session.cut_off'")
+        .all(conversation)
+        .map((r) => JSON.parse(r.payload).session),
     );
   }
   releaseOffer(job, session, event) {
@@ -382,11 +405,26 @@ export function joinedTurns(fragments) {
   }
   return turns;
 }
-export function liveHistory(fragments) {
+export const CUT_OFF_NOTE = "[Cut off here: the connection dropped and the user did not hear the rest. Do not continue, repeat or mention this answer on your own.]";
+/** Fix 7: keep a cut-off answer's complete sentences, drop its half sentence, and say it was cut off,
+ * so a reconnected session has nothing to continue. */
+export function markCutOff(text) {
+  const kept = text.match(/^[\s\S]*[.!?](?=\s|$)/)?.[0] || "";
+  return `${kept} ${CUT_OFF_NOTE}`.trim();
+}
+export function liveHistory(fragments, cutOffSessions = new Set()) {
   const history = [];
   let remaining = 6000;
-  for (const turn of joinedTurns(fragments).reverse()) {
-    const text = turn.text.trim().slice(-1200);
+  const turns = joinedTurns(fragments);
+  // The last assistant turn of a session that dropped mid-speech is the cut-off answer.
+  const cut = new Set();
+  for (const session of cutOffSessions) {
+    const i = turns.findLastIndex((t) => t.role === "assistant" && t.session === session);
+    if (i >= 0) cut.add(turns[i]);
+  }
+  for (const turn of turns.reverse()) {
+    let text = turn.text.trim().slice(-1200);
+    if (text && cut.has(turn)) text = markCutOff(text);
     if (!text) continue;
     if (history.length === 24 || text.length > remaining) break;
     remaining -= text.length;

@@ -354,6 +354,15 @@ const server = createServer(async (req, res) => {
       const memoryModels = memory.snapshot();
       const timeZone = resolveTimeZone(b.timeZone);
       const callId = typeof b.callId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(b.callId) ? b.callId : null;
+      // Fix 7: the browser reports that the session it is replacing dropped mid-speech.
+      // Only the conversation's current session can be reported, and only its own result.
+      const cut = b.cutOff;
+      if (cut && typeof cut === "object" && typeof cut.session === "string" && cut.session === conversation.active_session) {
+        const job = typeof cut.job === "string" && cut.job.length <= 200 ? cut.job : null;
+        const cutJob = store.cutOff(conversation.id, cut.session, job);
+        logger.info("Voice session cut off", { service: "jarvis-voice", trace_id: callId, conversation: conversation.id, session: cut.session, job: cutJob });
+        if (cutJob) publish(conversation.id, { type: "job.updated", job: publicJob(store.job(cutJob)) });
+      }
       let value;
       try {
         value = await azure.session({
@@ -364,7 +373,7 @@ const server = createServer(async (req, res) => {
             store.jobs(conversation.id),
             { instructions: b.instructions, pace: b.pace, timeZone },
           ),
-          history: liveHistory(store.history(conversation.id)),
+          history: liveHistory(store.history(conversation.id), store.cutOffSessions(conversation.id)),
         });
       } catch (err) {
         // Correlate a failed start with the browser's call ID; never the offer, prompt or history.

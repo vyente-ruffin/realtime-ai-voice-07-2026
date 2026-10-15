@@ -35,7 +35,11 @@ let wanted = false,
   deliveriesBusy = false;
 let microphoneUntil = 0,
   speakerUntil = 0,
-  lastSpeakerSample = 0;
+  lastSpeakerSample = 0,
+  lastAssistantDeltaAt = 0;
+// Fix 7: the result being read aloud now, and the drop that cut the last answer off (until reported).
+let readingResult = null,
+  pendingCutOff = null;
 let transcriptQueue = saved("jarvis.transcriptOutbox") || [];
 let jobs = new Map(),
   appendAcks = new Map(),
@@ -344,6 +348,17 @@ function transcript(event) {
 async function delegate(event) {
   const delegation = event.delegation;
   if (!delegation?.id || delegation.target !== "client") return;
+  if (delivery.cutOffReply(Date.now())) {
+    // Fix 7: "yes, finish" handed off would re-run the task and read the result twice (seen live).
+    append(
+      "session.thinking.append",
+      "No backend task: the app already has the cut-off answer and supplies it now. Say nothing about this handoff.",
+      delegation.id,
+    );
+    record("delegation.cut_off_reply");
+    void api("/api/audit", { conversation, session, kind: "delegation.cut_off_reply", at: Date.now() }).catch(showError);
+    return;
+  }
   try {
     const result = await api("/api/delegations", {
       conversation,
@@ -383,8 +398,10 @@ async function handle(event, call = activeCall) {
     ].includes(event.type)
   ) {
     transcript(event);
-    if (event.type === "session.output_transcript.delta")
+    if (event.type === "session.output_transcript.delta") {
+      lastAssistantDeltaAt = Date.now();
       delivery.assistantSpeech(event, Date.now());
+    }
     else {
       const outcome = delivery.userSpeech(event, Date.now());
       if (outcome === "stop")
@@ -518,6 +535,20 @@ async function deliver() {
     void api("/api/audit", { conversation, session, kind: "result.waiting_offered", at: now }).catch(showError);
     return;
   }
+  if (step.kind === "cutoff" || step.kind === "finish") {
+    const ids = append(
+      "session.commentary.append",
+      step.kind === "cutoff"
+        ? `Say exactly this one short sentence aloud, then stop and wait for the user: "${step.text}" Do not continue, repeat or summarise the cut-off answer now. If the user says yes, say only "Okay" and then nothing more until the app sends the answer a moment later: never retell, guess or make it up yourself.`
+        : "The user said yes: give your complete answer to their last question again now, from the start. The dropped connection cut it off, so they did not hear it.",
+    );
+    if (!ids.length) return;
+    delivery.sent(step, now);
+    const kind = step.kind === "cutoff" ? "result.cut_off_offered" : "result.cut_off_finished";
+    record(kind);
+    void api("/api/audit", { conversation, session, kind, at: now }).catch(showError);
+    return;
+  }
   const job = step.job;
   deliveriesBusy = true;
   try {
@@ -549,7 +580,9 @@ async function deliver() {
         : null;
     const ids = append(
       "session.commentary.append",
-      job.state === "completed"
+      step.resume
+        ? `The user asked you to finish the result the dropped connection cut off. Say it now, from the start, word for word, exactly once, then stop: ${job.state === "completed" ? job.result : plainReason(job)}`
+        : job.state === "completed"
         ? `A background task finished. Tell the user its result briefly at a natural pause, once: ${job.result}`
         : // Fix 4: an ended task is not running, and only its plain reason is passed on.
           `A background task ended and is no longer running. Tell the user its result briefly at a natural pause, once: ${plainReason(job)}`,
@@ -565,6 +598,17 @@ async function deliver() {
     delivery.sent(step, Date.now());
     job.delivery = "offered";
     record("result.offered", { job: job.id, event: offer.event });
+    // Fix 7: the result counts as being read until its speech ends: 1.5 s of speaker silence
+    // after it began. A shorter gap is only a pause between sentences (seen live).
+    const reading = (readingResult = { job: job.id, session });
+    const reader = setInterval(() => {
+      const now = Date.now();
+      if (readingResult !== reading || now - reading.at > 180000 || (lastSpeakerSample > reading.at && now > speakerUntil + 1500)) {
+        clearInterval(reader);
+        if (readingResult === reading) readingResult = null;
+      }
+    }, 200);
+    reading.at = Date.now();
     // This is only playback evidence. It does not assert that the whole result was heard.
     const start = Date.now();
     const observer = setInterval(() => {
@@ -756,11 +800,20 @@ async function start() {
       instructions: $("instructions").value.trim(),
       pace: $("speed").value,
       synthetic,
+      ...(pendingCutOff ? { cutOff: pendingCutOff } : {}),
     });
     telemetry.bind(attempt, result.session.id);
     if (!current()) return;
     session = result.session.id;
     delivery.joinSession(session);
+    if (pendingCutOff) {
+      // The server marked the cut-off answer in this session's history; offer to finish it once.
+      const cut = jobs.get(pendingCutOff.job);
+      if (cut) cut.delivery = "cut_off";
+      delivery.cutOff(cut ? cut.id : null, Date.now());
+      record("result.cut_off", { job: pendingCutOff.job });
+      pendingCutOff = null;
+    }
     memoryContext.reset(result.memoryModels || []);
     stage = "answer";
     await peer.setRemoteDescription({
@@ -844,6 +897,12 @@ function teardown(reason = "unknown") {
 function reconnect(reason = "unknown") {
   if (!wanted || retryTimer) return;
   record("connection.lost", { reason });
+  // Fix 7: was the assistant mid-answer when the connection dropped? Audio still playing, or a
+  // transcript word in the last 2 s, means the user missed the rest of it.
+  const now = Date.now();
+  if (session && (now < speakerUntil + 1000 || now - lastAssistantDeltaAt < 2000))
+    pendingCutOff = { session, job: readingResult?.session === session ? readingResult.job : null };
+  readingResult = null;
   teardown(reason);
   status("Reconnecting — tasks are still running");
   retry++;
@@ -894,6 +953,7 @@ async function typed() {
 }
 $("startBtn").onclick = () => {
   retryTimer = null;
+  pendingCutOff = null;
   delivery.startCall();
   void start();
 };

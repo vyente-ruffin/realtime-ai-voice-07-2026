@@ -36,6 +36,15 @@ export async function until(fn, { timeout = 60000, every = 500, what = "conditio
 }
 
 const mixer = () => {
+  // Keep every peer connection the page makes so a test can drop the call like a network loss.
+  window.__pcs = [];
+  const Peer = window.RTCPeerConnection;
+  window.RTCPeerConnection = class extends Peer {
+    constructor(...args) {
+      super(...args);
+      window.__pcs.push(this);
+    }
+  };
   const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   navigator.mediaDevices.getUserMedia = async (constraints) => {
     const fake = await original(constraints);
@@ -176,6 +185,20 @@ export class Call {
     const created = this.page.waitForResponse((r) => r.url().endsWith("/api/delegations"), { timeout: 30000 });
     await this.page.click("#sendBtn");
     return (await (await created).json()).job;
+  }
+  /** Drop the connection without ending the call: close the page's live RTCPeerConnection,
+   * so the app's own reconnect path runs. Resolves with the reconnected session id. */
+  async drop({ timeout = 60000 } = {}) {
+    const before = this.session;
+    const live = this.page.waitForResponse((r) => r.url().endsWith("/api/live") && r.request().method() === "POST", { timeout });
+    const started = (await this.events("session.started")).length;
+    const droppedAt = Date.now();
+    await this.page.evaluate(() => window.__pcs.filter((p) => p.connectionState !== "closed").forEach((p) => p.close()));
+    const body = await (await live).json();
+    if (!body.session?.id) throw Object.assign(new Error("Reconnect did not start a session"), { connect: true });
+    this.session = body.session.id;
+    await this.page.waitForFunction((n) => window.__voiceLabEvents.filter((e) => e.type === "session.started").length > n, started, { timeout });
+    return { previous: before, session: this.session, droppedAt, reconnectedAt: Date.now() };
   }
   async events(type) {
     return this.page.evaluate((t) => window.__voiceLabEvents.filter((e) => !t || e.type === t), type);
