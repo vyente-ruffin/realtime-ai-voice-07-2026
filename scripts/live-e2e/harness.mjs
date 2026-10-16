@@ -70,11 +70,18 @@ const mixer = () => {
   const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   navigator.mediaDevices.getUserMedia = async (constraints) => {
     const fake = await original(constraints);
-    const ctx = new AudioContext({ sampleRate: 48000 });
+    // "playback": a larger render buffer, so a CPU stall on this shared box doesn't starve the
+    // track. Seen in a test call: 38 RTP packets/s instead of 50 while an utterance played, and the
+    // voice heard only its last two words (Oct 16).
+    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "playback" });
     await ctx.resume();
     const out = ctx.createMediaStreamDestination();
     ctx.createMediaStreamSource(fake).connect(out);
-    window.__mix = { ctx, out, playing: null };
+    // Diagnostic: the peak level on the track the page sends, measured while each utterance plays.
+    const probe = ctx.createAnalyser();
+    probe.fftSize = 512;
+    ctx.createMediaStreamSource(out.stream).connect(probe);
+    window.__mix = { ctx, out, playing: null, probe };
     return out.stream;
   };
   window.__say = async (b64, loop = false) => {
@@ -87,8 +94,18 @@ const mixer = () => {
     node.connect(out);
     window.__mix.playing = node;
     const ended = new Promise((r) => (node.onended = r));
+    let peak = 0;
+    const data = new Float32Array(512);
+    const meter = setInterval(() => {
+      window.__mix.probe.getFloatTimeDomainData(data);
+      let e = 0;
+      for (const v of data) e += v * v;
+      peak = Math.max(peak, Math.sqrt(e / data.length));
+    }, 50);
     node.start();
     if (!loop) await ended;
+    clearInterval(meter);
+    window.__lastPeak = peak;
     return buffer.duration;
   };
   window.__hush = () => {
@@ -161,6 +178,9 @@ export async function launch(run) {
       "--use-fake-device-for-media-stream",
       `--use-file-for-fake-audio-capture=${silence(5)}`,
       "--autoplay-policy=no-user-gesture-required",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
     ],
   });
   // The owner's browser zone, so clock answers match a real call.
@@ -202,8 +222,20 @@ export class Call {
   async say(file, { loop = false } = {}) {
     const b64 = readFileSync(file).toString("base64");
     const startedAt = Date.now();
+    const sent = () => this.page.evaluate(async () => {
+      let n = 0;
+      for (const pc of window.__pcs.filter((p) => p.connectionState === "connected"))
+        for (const r of (await pc.getStats()).values()) if (r.type === "outbound-rtp" && r.kind === "audio") n += r.packetsSent;
+      return n;
+    }).catch(() => null);
+    const before = loop ? null : await sent();
     const duration = await this.page.evaluate(([data, l]) => window.__say(data, l), [b64, loop]);
-    return { startedAt, endedAt: Date.now(), duration };
+    const peak = loop ? null : await this.page.evaluate(() => window.__lastPeak);
+    const after = loop ? null : await sent();
+    const endedAt = Date.now();
+    // Diagnostic: RTP audio packets the page sent while the utterance played (20 ms each, so ~50/s).
+    const packetsSent = before === null || after === null ? null : after - before;
+    return { startedAt, endedAt, duration, peak, packetsSent, packetsPerSecond: packetsSent === null ? null : Math.round(packetsSent / ((endedAt - startedAt) / 1000)) };
   }
   async hush() {
     await this.page.evaluate(() => window.__hush());

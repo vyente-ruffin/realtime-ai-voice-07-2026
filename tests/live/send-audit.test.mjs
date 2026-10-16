@@ -143,21 +143,25 @@ test("send audit: every send path records a row with its purpose, length, ids an
   await p.click("#startBtn");
   await p.waitForFunction(() => window.testPeer?.channel.readyState === "open");
   await event(p, { type: "session.started", session: { id: "x" } });
-  // job-status: the job snapshot is sent at session start.
-  await waitFor(() => sentWith(p, /Task status from the app/), "job-status send");
+  // job-status: held while the line is quiet (conversation fix, Oct 16), sent once the user speaks.
   // consent: the waiting-results line after a 2 s pause.
   await waitFor(() => sentWith(p, /finished while you were away/), "waiting line", 8000);
-  // memory: a changed section is held until the user speaks; clock too.
+  // memory: a changed section is held for the rest of the call; the clock waits for a time question.
   await p.evaluate(() => window.testSources.at(-1).onmessage({ data: JSON.stringify({ type: "memory.context",
     models: [{ id: "m1", revision: "r2", context: "Personal memory section m1. PRIVATE_MEMORY_SENTINEL" }] }) }));
+  // A job changes while the line is quiet: held (the prompt already had the start status).
+  await p.evaluate(() => window.testSources.at(-1).onmessage({ data: JSON.stringify({ type: "job.updated",
+    job: { id: "job-new", conversation: "x", session: "x", delegation: "typed_new", state: "running", request: "user: a new test task", created: Date.now(), updated: Date.now() } }) }));
+  assert.equal(await sentWith(p, /Task status from the app/), undefined, "no status into the quiet line");
   await say(p, "Yes, tell me.", 3000);
+  assert.equal(await sentWith(p, /Task status from the app/), undefined, "not for words that don't ask about status");
   // The voice hands the yes to the backend (seen live): the app answers it and creates no job.
   await event(p, { type: "session.delegation.created", delegation: { id: "item_yes", target: "client" } });
   const reply = await waitFor(() => sentWith(p, /the results the user just accepted/), "consent handoff reply");
   assert.equal(reply.delegation_id, "item_yes");
   assert.equal(reply.type, "session.thinking.append");
-  await waitFor(() => sentWith(p, /PRIVATE_MEMORY_SENTINEL/), "memory send");
-  await waitFor(() => sentWith(p, /Current browser-local date and time/), "clock send");
+  assert.equal(await sentWith(p, /PRIVATE_MEMORY_SENTINEL/), undefined, "a memory refresh is not sent mid-call");
+  assert.equal(await sentWith(p, /Current browser-local date and time/), undefined, "no clock without a time question");
   // result: read after the yes settles and a fresh pause.
   const resultEvent = await waitFor(() => sentWith(p, /PRIVATE_RESULT_SENTINEL/), "result send", 10000);
   // GPT-Live acknowledges the result in its own session, which makes the delivery injected.
@@ -165,9 +169,16 @@ test("send audit: every send path records a row with its purpose, length, ids an
   // save-confirmation: a completed memory save.
   await p.evaluate(() => window.testSources.at(-1).onmessage({ data: JSON.stringify({ type: "memory.state", state: "saved", saved: "User said: PRIVATE_SAVED_SENTINEL" }) }));
   await waitFor(() => sentWith(p, /Memory save confirmed/), "save confirmation");
+  // job-status: sent when the user asks about status.
+  await new Promise((resolve) => setTimeout(resolve, 2100));
+  await say(p, " How's that task going?", 6000);
+  await waitFor(() => sentWith(p, /Task status from the app/), "job-status send");
+  // clock: the prompt has this minute's clock; asking a place's time sends that place's line.
+  await say(p, " What time is it in Tokyo?", 7000);
+  await waitFor(() => sentWith(p, /Time now in the place the user named[^]*Tokyo \(Asia\/Tokyo\)/), "clock send");
   // instructions: the user says stop.
   await say(p, "Stop.", 9000);
-  await waitFor(() => sentWith(p, /The user just told you to stop/), "stop instructions");
+  await waitFor(() => sentWith(p, /The user just said stop/), "stop instructions");
   // cut-off: a new request and its answer reopen delivery, then the connection drops mid-answer.
   await new Promise((resolve) => setTimeout(resolve, 2000)); // a new turn, not more of "stop"
   await say(p, "What's the capital of France?", 12000);
@@ -202,7 +213,7 @@ test("send audit: every send path records a row with its purpose, length, ids an
     assert.ok(ack.detail.ackAt >= row.detail.sentAt && ack.detail.ackMs >= 0);
   }
   const purposes = new Set(sends.map((r) => r.detail.purpose));
-  for (const purpose of ["job-status", "consent", "memory", "clock", "result", "save-confirmation", "instructions", "cut-off"])
+  for (const purpose of ["job-status", "consent", "clock", "result", "save-confirmation", "instructions", "cut-off"])
     assert.ok(purposes.has(purpose), `a ${purpose} send was recorded (${[...purposes]})`);
   assert.equal(sends.find((r) => r.detail.purpose === "result").detail.eventType, "session.commentary.append");
   assert.equal(sends.find((r) => r.detail.purpose === "instructions").detail.eventType, "session.instructions.append");

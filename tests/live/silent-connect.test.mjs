@@ -87,8 +87,24 @@ test("the page holds memory updates and releases them on user speech", () => {
   assert.match(page, /new MemoryContext\([^;]*\{ holdUntilUser: true \}\)/);
   assert.match(page, /record\("memory.context.held"/);
   assert.match(page, /new ClockContext\([^;]*\{ holdUntilUser: true \}\)/);
-  // Fix 5 (Part 3) sends its turn-taking instruction first; the held context is still released here.
-  assert.match(page, /else \{\n(?:.*\n){0,3}\s*memoryContext\.userSpoke\(\);\n\s*clockContext\.userSpoke\(\);\n\s*const outcome = delivery\.userSpeech/);
+  // Held memory is no longer released on user speech (conversation fix, Oct 16): it waits for the
+  // next session's prompt.
+  assert.equal(page.match(/memoryContext\.userSpoke\(\)/g), null);
+  // The held clock goes out only once a turn asks the time (conversation fix, Oct 16).
+  const place = page.slice(page.indexOf("function placeTimes(text)"), page.indexOf("const delivery = new DeliveryPolicy()"));
+  assert.match(place, /if \(!text \|\| !clockQuestion\(text\)\) return;\n\s*if \(placesSent\.turn !== turnTaking\.turn\) \{/);
+  assert.match(place, /const localClock = \(tries\) => \{\n\s*if \(placesSent\.turn !== turn \|\| placesSent\.zones\.size\) return;\n\s*if \(PLACE_COMING\.test\(turn\?\.text \|\| ""\) && tries > 0\) placesSent\.timer = setTimeout\(\(\) => localClock\(tries - 1\), LOCAL_CLOCK_WAIT_MS\);\n\s*else clockContext\.userSpoke\(\);/);
+  assert.match(place, /placesSent\.timer = setTimeout\(\(\) => localClock\(3\), LOCAL_CLOCK_WAIT_MS\);/);
+  assert.match(page, /const LOCAL_CLOCK_WAIT_MS = 1000;/);
+  // A named place gets its own short line and cancels the local clock.
+  assert.match(place, /if \(!fresh\.length\) return;\n\s*clearTimeout\(placesSent\.timer\);/);
+  // "what time it is in" waits for the place.
+  const coming = new RegExp(page.match(/const PLACE_COMING = \/(.*)\/i;/)[1], "i");
+  for (const t of [" What time it is in", "what time is it in,", "what's the time at"]) assert.ok(coming.test(t), t);
+  for (const t of [" What time is it?", "what time it is in Tokyo"]) assert.ok(!coming.test(t), t);
+  // Nowhere else: not at a turn's first words, not while the voice speaks.
+  assert.equal(page.match(/clockContext\.userSpoke\(\)/g).length, 1, "nowhere else");
+  assert.match(page, /clockContext\.reset\(\[clockSnapshot\(\)\]\);/);
 });
 
 test("each memory section says it is quiet context, not a cue to speak", () => {

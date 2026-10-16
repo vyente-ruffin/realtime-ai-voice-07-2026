@@ -34,7 +34,7 @@ test("5b/5c: once finished, answer once and promptly; another city's time comes 
 
 test("5d: interruption still stops speech at once (Fix 1 wording unchanged)", () => {
   assert.match(prompt, /Interruption policy: Stop your answer immediately when the user interrupts\./);
-  assert.match(prompt, /If the user says stop, quiet, enough or shut up, stop speaking and stay silent/);
+  assert.match(prompt, /If the user says stop, quiet, enough or shut up, stop speaking: do not acknowledge, apologise, continue or resume\./);
 });
 
 test("the turn-taking rule stays short (plan: keep the instructions short)", () => {

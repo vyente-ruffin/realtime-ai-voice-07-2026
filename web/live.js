@@ -2,11 +2,12 @@
 // WebRTC/client-delegation guides. Audio interruption never cancels an app job.
 import { BrowserTelemetry } from "./telemetry.js";
 import { MemoryContext } from "./memory-context.js";
-import { ClockContext, clockQuestion, clockSnapshot } from "./clock-context.js";
+import { ClockContext, clockQuestion, clockSnapshot, namedPlacesContext, namedZones } from "./clock-context.js";
 import { DeliveryPolicy } from "./delivery-policy.js";
-import { statusContext, plainReason } from "./status-context.js";
+import { statusContext, plainReason, statusQuestion } from "./status-context.js";
 import { saveConfirmation } from "./status-context.js";
-import { TurnTaking } from "./turn-taking.js";
+import { LanguageGuard } from "./language.js";
+import { TurnTaking, REPLY_WAIT_MS } from "./turn-taking.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -171,15 +172,61 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pageshow", () => clockContext.refresh());
 window.addEventListener("focus", () => clockContext.refresh());
+// The clock (local time and the world-city list) is in the session prompt from the call's start;
+// mid-call it goes out only for a time question. Sent at every turn's first words, it made the
+// voice answer "Hey Jarvis, how's it going?" with the time (2 of 6 calls, Oct 16); sent the moment
+// "what time" was heard, the voice answered before the city name, wrongly ("5:18 in the afternoon,
+// Auckland time", 1 of 6); sent while the voice spoke, garbled text followed ("Paris.աղে", 1 of 6).
+// So a named place gets one short line with its time (Intl, its IANA zone) once its name is
+// transcribed, and with no place named the newest local clock follows 1 s later, only if its minute
+// is newer than the prompt's (clockContext). While the words end on "in", "at" or "for", a place is
+// still coming: the local clock sent then was said as Tokyo's time ("11:21 a.m. in Tokyo", 2 of
+// 10). MS Learn, "Use GPT-Live for real-time voice", "Add context during the conversation": quiet
+// context "can still influence later speech"; "What is GPT-Live", "Context management": supply
+// relevant context when it's needed.
+const LOCAL_CLOCK_WAIT_MS = 1000;
+const PLACE_COMING = /\b(?:in|at|for)[\s,.]*$/i;
+let placesSent = { turn: null, zones: new Set(), timer: null };
+function placeTimes(text) {
+  if (!text || !clockQuestion(text)) return;
+  if (placesSent.turn !== turnTaking.turn) {
+    clearTimeout(placesSent.timer);
+    const turn = turnTaking.turn;
+    placesSent = { turn, zones: new Set(), timer: null };
+    const localClock = (tries) => {
+      if (placesSent.turn !== turn || placesSent.zones.size) return;
+      if (PLACE_COMING.test(turn?.text || "") && tries > 0) placesSent.timer = setTimeout(() => localClock(tries - 1), LOCAL_CLOCK_WAIT_MS);
+      else clockContext.userSpoke();
+    };
+    placesSent.timer = setTimeout(() => localClock(3), LOCAL_CLOCK_WAIT_MS);
+  }
+  const fresh = namedZones(text).filter(({ zone }) => !placesSent.zones.has(zone));
+  if (!fresh.length) return;
+  clearTimeout(placesSent.timer);
+  for (const { zone } of fresh) placesSent.zones.add(zone);
+  append("session.thinking.append", namedPlacesContext(fresh.map(({ name }) => name).join(", ")), null, undefined, "clock");
+  record("clock.place_time", { zones: fresh.map(({ zone }) => zone) });
+}
 const delivery = new DeliveryPolicy();
 // Fix 5: trusted "let them finish" instructions from the live input transcript (turn-taking.js).
 const turnTaking = new TurnTaking();
-// Fix 4: task name, state, minutes, newest Hermes step and plain failure reason. Sent on every
-// job change, and again when the user starts speaking if the minutes have moved since: a timed
-// resend made the model announce progress unasked, and minutes only matter when asked.
+const languageGuard = new LanguageGuard();
+let replyTimer = null;
+function replyCheck() {
+  const nudge = turnTaking.replyDue(Date.now());
+  if (nudge) append("session.instructions.append", nudge, null, undefined, "turn-taking");
+}
+// Fix 4: task name, state, minutes, newest Hermes step and plain failure reason. A job change is
+// held, and the newest status goes out when the user asks about status (statusQuestion), and only
+// if it differs from what the voice already has (so a greeting with no task sends nothing). Sent
+// on every change, it landed in the quiet line after an answer and was read aloud word for word
+// ("Task status from the app (silent update, …", 1 of 8 calls, Oct 16), like the memory and clock
+// pushes into a silent call in Fix 1; held to the mic's speech onset, the whole question after it
+// never reached the voice (1 of 10); held to the user's 3rd word, the next word ("France") was
+// lost (1 of 10). A timed resend made the model announce progress unasked (Fix 4).
 let statusCheckedAt = 0;
-function quietJobs() {
-  if (!session) return;
+function quietJobs(asked = false) {
+  if (!session || !asked) return;
   statusCheckedAt = Date.now();
   const snapshot = statusContext([...jobs.values()], Date.now());
   if (snapshot === lastQuietSnapshot) return;
@@ -421,7 +468,7 @@ async function delegate(event) {
   if (clockQuestion(said)) {
     append(
       "session.thinking.append",
-      `No backend task: this is a date or time question. Answer it now yourself in one short sentence from this browser clock, with no acknowledgment first. ${clockSnapshot().context}`,
+      `No backend task: this is a date or time question. Answer it now yourself in one short sentence from this browser clock, with no acknowledgment first. ${namedPlacesContext(said)} ${clockSnapshot().context}`,
       delegation.id,
       undefined,
       "clock",
@@ -478,8 +525,12 @@ async function handle(event, call = activeCall) {
     retry = 0;
     status("Listening");
     $("lamp").textContent = "Ready";
-    // The session prompt already carries the status at call start.
-    if (jobs.size) quietJobs();
+    // The session prompt already carries the status at call start: only a change is sent. Resent at
+    // the user's first words, "No task is running now" made the voice answer "Hey Jarvis, how's it
+    // going?" with "Nothing's running right now" (Oct 16).
+    lastQuietSnapshot = statusContext([...jobs.values()], Date.now());
+    // The session prompt carries this minute's clock and world list: only a later minute is sent.
+    clockContext.reset([clockSnapshot()]);
     clockContext.start();
     memoryContext.flush();
     void flushTranscript();
@@ -494,21 +545,32 @@ async function handle(event, call = activeCall) {
       lastAssistantDeltaAt = Date.now();
       turnTaking.assistantSpeech();
       delivery.assistantSpeech(event, Date.now());
+      const english = languageGuard.assistantSpeech(event.delta, Date.now());
+      if (english) append("session.instructions.append", english, null, undefined, "language");
     }
     else {
-      // Before any quiet context, so it is the newest thing the voice has while V is mid-sentence.
+      languageGuard.userSpeech(event.delta);
       const turn = turnTaking.userSpeech(event, Date.now());
-      if (turn) append("session.instructions.append", turn.text, null, undefined, "turn-taking");
-      memoryContext.userSpoke();
-      clockContext.userSpoke();
       const outcome = delivery.userSpeech(event, Date.now());
+      // Only the "stay silent" text at a trailing filler (turn-taking.js); "Stop" gets only the stop
+      // instruction below.
+      if (turn && outcome !== "stop") append("session.instructions.append", turn.text, null, undefined, "turn-taking");
+      if (outcome !== "stop" && statusQuestion(turnTaking.turn?.text) && Date.now() - statusCheckedAt > 2000) quietJobs(true);
+      clearTimeout(replyTimer);
+      replyTimer = setTimeout(replyCheck, REPLY_WAIT_MS + 50);
+      // A memory refresh is not released here any more: sent at a turn's first words, it was
+      // followed within 1 s by the voice echoing the user ("What's the capital of France?",
+      // "uh... How's it going?") or stammering ("A-a-") in 4 of 6 calls (Oct 16). It stays held
+      // for this call; the next session's prompt, reconnects included, carries the newest memory.
+      placeTimes(turnTaking.turn?.text);
       // A result the user stopped is no longer being read: a later drop must not offer it back.
       if (outcome === "stop") readingResult = null;
+      if (outcome === "stop") turnTaking.endTurn();
       if (outcome === "stop")
         // GPT-Live has no response-cancel event; trusted instructions change speech.
         append(
           "session.instructions.append",
-          "The user just told you to stop. Stop speaking immediately. Say nothing more, not even an acknowledgment, until the user speaks to you again.",
+          "The user just said stop. Stop speaking now, and do not reply to the stop itself, not even \"Okay\" or \"Okay, stopping\". This is only about the stop: answer the user's next question normally.",
           null,
           undefined,
           "instructions",
@@ -518,7 +580,10 @@ async function handle(event, call = activeCall) {
         auditApp(`delivery.${outcome}`);
       }
     }
-  } else if (event.type === "session.delegation.created") void delegate(event);
+  } else if (event.type === "session.delegation.created") {
+    turnTaking.delegated();
+    void delegate(event);
+  }
   else if (event.type === "session.thinking.appended") {
     memoryContext.acknowledge(event.client_event_id);
     clockContext.acknowledge(event.client_event_id);
@@ -570,7 +635,6 @@ function monitor(stream, input) {
       if (!muted && rms > 0.018) {
         microphoneUntil = now + 500;
         delivery.heard(now);
-        if (now - statusCheckedAt > 2000) quietJobs();
       }
     } else if (rms > 0.003) {
       speakerUntil = now + 250;
@@ -699,7 +763,7 @@ async function deliver() {
       step.resume
         ? `The user asked you to finish the result the dropped connection cut off. Say it now, from the start, word for word, exactly once, then stop: ${job.state === "completed" ? job.result : plainReason(job)}`
         : job.state === "completed"
-        ? `A background task finished. Tell the user its result briefly at a natural pause, once: ${job.result}`
+        ? `A background task finished. Tell the user its result briefly at a natural pause, once, in English: ${job.result}`
         : // Fix 4: an ended task is not running, and only its plain reason is passed on.
           `A background task ended and is no longer running. Tell the user its result briefly at a natural pause, once: ${plainReason(job)}`,
       delegation,
@@ -1062,16 +1126,14 @@ async function typed() {
     delegation: "typed_" + crypto.randomUUID(),
     events: [event],
   });
+  // The typed words reach the voice only as the task's name in the quiet status update that
+  // updateJob sends; the result comes as commentary when it is ready. A separate quiet context
+  // quoting the request was followed within 1 s by garbled speech, then Korean (1 of 6 calls) or a
+  // made-up "What's the capital of Australia? Canberra." (1 of 6), Oct 16; an earlier wording made
+  // the voice carry the request out itself. MS Learn, "Delegate work in GPT-Live": the application
+  // keeps the authoritative task state; "Use GPT-Live for real-time voice": quiet context can
+  // still influence later speech.
   updateJob(result.job);
-  append(
-    "session.thinking.append",
-    // Quiet context, not an instruction: the voice once carried a typed request out itself, made up
-    // its result and then read the real one (said twice, seen live).
-    `Quiet context, not a request to speak: the user typed a request in the text box and the app has handed it to Hermes. Do not carry it out, answer it or guess its result yourself, and say nothing about it now; the app supplies the result when it is ready. The typed request: "${text}"`,
-    null,
-    undefined,
-    "typed",
-  );
 }
 $("startBtn").onclick = () => {
   retryTimer = null;

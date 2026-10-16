@@ -183,14 +183,18 @@ test("4e: the status rule bans the vague phrases and answers only from the task 
 test("4a/4b: the browser sends the status context on every change and refreshes the minutes when the user starts speaking", () => {
   const live = readFileSync(join(root, "web/live.js"), "utf8");
   const server = readFileSync(join(root, "src/live/server.js"), "utf8");
-  assert.match(live, /import \{ statusContext, plainReason \} from "\.\/status-context\.js"/);
+  assert.match(live, /import \{ statusContext, plainReason(?:, statusQuestion)? \} from "\.\/status-context\.js"/);
   assert.match(live, /A background task ended and is no longer running\. Tell the user its result briefly at a natural pause, once: \$\{plainReason\(job\)\}/, "an ended task's delivery never sounds like it is still running, and never carries raw error text");
   assert.match(live, /statusContext\(\[\.\.\.jobs\.values\(\)\], Date\.now\(\)\)/);
   assert.match(live, /append\("session\.thinking\.append", snapshot, null, undefined, "job-status"\)/);
-  assert.match(live, /delivery\.heard\(now\);\n\s*if \(now - statusCheckedAt > 2000\) quietJobs\(\);/, "minutes are current when the user asks");
+  // The newest status goes out when the user asks about status (conversation fix, Oct 16): never
+  // into the quiet line, never at the mic's speech onset, never on a job change by itself.
+  assert.match(live, /if \(outcome !== "stop" && statusQuestion\(turnTaking\.turn\?\.text\) && Date\.now\(\) - statusCheckedAt > 2000\) quietJobs\(true\);/, "minutes are current when the user asks");
+  assert.match(live, /function quietJobs\(asked = false\) \{\n\s*if \(!session \|\| !asked\) return;/);
+  assert.doesNotMatch(live, /delivery\.heard\(now\);\n\s*if [^\n]*quietJobs/, "not at the mic's speech onset");
   assert.doesNotMatch(live, /setInterval\(quietJobs/, "no timed resend: it made the model announce progress unasked");
   assert.doesNotMatch(live, /if \(!session \|\| !jobs\.size\) return;/, "an empty job list still says nothing is running");
-  assert.match(live, /updateJob[\s\S]*quietJobs\(\)/, "every job change is sent");
+  assert.match(live, /updateJob[\s\S]*quietJobs\(\)/, "every job change goes through quietJobs (held until asked)");
   assert.match(server, /"\/web\/status-context\.js"/);
   assert.match(server, /\.update\(statusScript\)/);
 });

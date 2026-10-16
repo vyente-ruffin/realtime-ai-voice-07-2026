@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { DeliveryPolicy, PAUSE_MS, OVERLAP_HOLD_MS, waitingLine } from "../../web/delivery-policy.js";
 import { VoiceStore, deliveryCutoff } from "../../src/live/store.js";
 import { instructions } from "../../src/live/policy.js";
+import { statusContext } from "../../web/status-context.js";
 
 const done = (id, session, extra = {}) => ({ id, session, state: "completed", delivery: "available", updated: 1, ...extra });
 const user = (delta, start_ms = 0) => ({ type: "session.input_transcript.delta", delta, start_ms, end_ms: start_ms + 200 });
@@ -305,13 +306,17 @@ test("double read: after a clear yes the first accepted result goes at once, not
   assert.equal(r.next(jobs.map((j) => ({ ...j, delivery: "available" })), 75_000, false), null, "stop still locks");
 });
 
-test("double read: a typed request reaches the voice as quiet context it must not carry out itself", () => {
+test("conversation: a typed request reaches the voice only as its task name in the quiet status", () => {
+  // A quiet context quoting the typed request was followed within 1 s by garbled speech, then
+  // Korean or a made-up question (Oct 16); "The user typed: ..." earlier made the voice do it itself.
   const live = readFileSync(new URL("../../web/live.js", import.meta.url), "utf8");
-  const typed = live.slice(live.indexOf("async function typed()"));
-  assert.match(typed, /Quiet context, not a request to speak: the user typed a request/);
-  assert.match(typed, /Do not carry it out, answer it or guess its result yourself/);
-  assert.match(typed, /"typed",\n  \);/);
-  assert.doesNotMatch(live, /`The user typed: \$\{text\}\. Hermes is working on it\.`/);
+  const typed = live.slice(live.indexOf("async function typed()"), live.indexOf("$(\"startBtn\").onclick"));
+  assert.doesNotMatch(typed, /append\(/, "no append of its own");
+  assert.match(typed, /updateJob\(result\.job\);/, "the status update names the task");
+  assert.doesNotMatch(live, /The typed request:|`The user typed: \$\{text\}/);
+  const status = statusContext([{ id: "j", state: "running", request: "user: How much disk is free?", created: 0, updated: 0 }], 1000);
+  assert.match(status, /"How much disk is free\?": running/);
+  assert.match(status, /silent update, not a request to speak/);
 });
 
 test("double read: the rule for the reply to the waiting line is in the session instructions, not a mid-call instruction", () => {

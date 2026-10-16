@@ -75,3 +75,12 @@ export function saveConfirmation(saved) {
   const words = clip(String(saved || "").replace(/^User said:\s*/gm, ""), 300);
   return `Memory save confirmed by the app (silent update, not a request to speak): the user's own words "${words}" are now saved in long-term memory. Only an update like this proves a save. Do not announce it; if the user asks whether it is saved, say yes.`;
 }
+
+// A question about task status ("How's it going?", "What are you doing on that?", "Is anything
+// running?", "What happened with that task?"): the moment the app sends the newest status. Sent on
+// every job change instead, it landed in the quiet line (read aloud) or mid-sentence (the words
+// after it were lost) (conversation fix, Oct 16).
+const STATUS_QUESTION = /\b(?:status|progress|any (?:news|update)|update on|how(?:'s| is| are)? (?:it|that|this|things|(?:the|my|that) (?:\w+ ){0,3}?\w+) (?:going|coming)|still (?:running|working|going)|(?:is|are) (?:it|that|this|they|anything|something) (?:done|finished|running|ready|working)|anything running|what(?:'s| is| are) (?:you|it) (?:doing|working on)|what are you (?:doing|working on)|what happened|where (?:are|is) (?:we|you|it|that) (?:with|on|at)|how long)\b/i;
+export function statusQuestion(text) {
+  return STATUS_QUESTION.test(String(text || "").replace(/[’]/g, "'"));
+}

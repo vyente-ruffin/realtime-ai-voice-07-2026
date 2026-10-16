@@ -5,8 +5,12 @@
 // conversation"). This decides when the app sends a short trusted "let them finish" instruction,
 // from the live input transcript; it never sends anything itself.
 // Seen live: the voice filled V's pause after "So can you check, uh" with "Go ahead, what do you
-// want me to check?". The "uh" fragment arrived together with that reply, so the instruction goes
-// at the first words of each turn (about 1 s before such a pause), and again on a trailing filler.
+// want me to check?", so a trailing filler gets a short "stay silent" instruction. Nothing is sent
+// while the user is talking: an instruction sent at the first words of every turn (Fix 5 Part 3)
+// made the voice miss the next ~0.5 s of speech. "So can you check, uh" was transcribed whole
+// before it and lost "check" in almost every 5a run after it; "Hey Jarvis, how's it going?" became
+// "Hey Jarvis, how's" and went unanswered (Oct 16). The let-them-finish rule is in the session
+// instructions; a missed reply gets the watchdog below.
 // A turn ends when the voice speaks. A pause alone never ends it: 1.5 s of silence plus transcript
 // lag passed a 1.8 s gap, the instruction went out again mid-sentence and the voice never answered
 // (seen live). Only a long silence starts a new turn without the voice speaking.
@@ -15,12 +19,18 @@ export const TURN_GAP_MS = 10000;
 // "what time it is in", just before "Tokyo", and the voice then hesitated or handed it off.)
 const FILLER = /(?:\b(?:uh+|uhm+|um+|ah+|er+|erm|hmm+)|\.\.\.|…)[\s,.]*$/i;
 
-// "When they finish, answer at once" made the voice preface its answer and hand a clock question to
-// Hermes (seen live); without it the voice still handed "can you check… what time it is in Tokyo"
-// off in 3 of 10 calls, so the instruction repeats the existing rule: answer what you can yourself.
-export const START_TEXT =
-  "The user is still speaking. Do not fill a pause or an \"uh\" with a reply, acknowledgment or question; wait silently for the rest of their words. Then answer yourself when you can, as usual: times come from the browser clock, not a handoff.";
 export const UNFINISHED_TEXT = "The user paused mid-sentence. Stay silent and wait for the rest of their words.";
+// A finished question the voice let pass: no reply 2.5 s after the user's last words. Seen live
+// (Oct 16): "Hey Jarvis, how's it going?" and the question after a stop went unanswered for 25 s.
+// GPT-Live has no "respond now" event; the model "decides when to respond" (MS Learn, "What is
+// GPT-Live"), and session.instructions.append is the documented way to change speech, so the app
+// sends one short trusted instruction, once per turn. Never for a stop, an unfinished sentence
+// ("uh"), a turn handed to the backend, or words with no question in them. It also answers the
+// question after a stop: "say nothing until the user speaks again" kept the voice silent through
+// it (2 of 2 calls, Oct 16).
+export const REPLY_WAIT_MS = 2500;
+export const REPLY_TEXT = "The user has finished and is waiting for your reply: answer them now, briefly.";
+const QUESTION = /\?|\b(?:what|how|who|where|when|why|which|can you|could you)\b/i;
 
 export function unfinished(text) {
   return FILLER.test(String(text || "").trim());
@@ -28,11 +38,28 @@ export function unfinished(text) {
 
 export class TurnTaking {
   constructor() {
-    this.turn = null; // { text, at, startedAt, unfinishedSent }
+    this.turn = null; // { text, at, startedAt, unfinishedSent, nudged, delegated }
   }
   /** The assistant spoke: the user's next words are a new turn. */
   assistantSpeech() {
     this.turn = null;
+  }
+  /** "Stop" ends the user's turn too: the voice stays silent after it, so the next question is a
+   * turn of its own (its reply watchdog included), not more of the stop. */
+  endTurn() {
+    this.turn = null;
+  }
+  /** The voice handed this turn to the backend: its reply is the handoff, not speech. */
+  delegated() {
+    if (this.turn) this.turn.delegated = true;
+  }
+  /** Called REPLY_WAIT_MS after the user's last words: the nudge to send now, or null. */
+  replyDue(now) {
+    const t = this.turn;
+    if (!t || t.nudged || t.delegated || t.startedAt === null || now - t.at < REPLY_WAIT_MS) return null;
+    if (unfinished(t.text) || !QUESTION.test(t.text)) return null;
+    t.nudged = true;
+    return REPLY_TEXT;
   }
   /** A user transcript delta. Returns the instruction to send now, or null. */
   userSpeech(event, now) {
@@ -42,9 +69,9 @@ export class TurnTaking {
     if (!/\w/.test(this.turn.text)) return null;
     if (this.turn.startedAt === null) {
       this.turn.startedAt = now;
-      return { kind: "start", text: START_TEXT };
+      return null;
     }
-    // Once per turn, and not in the same breath as the start instruction.
+    // Once per turn, and not on the turn's first words.
     if (!this.turn.unfinishedSent && now - this.turn.startedAt >= 600 && unfinished(this.turn.text)) {
       this.turn.unfinishedSent = true;
       return { kind: "unfinished", text: UNFINISHED_TEXT };
