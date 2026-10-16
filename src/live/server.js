@@ -21,6 +21,7 @@ const memoryScript = readFileSync(join(root, "web/memory-context.js"), "utf8");
 const clockScript = readFileSync(join(root, "web/clock-context.js"), "utf8");
 const deliveryScript = readFileSync(join(root, "web/delivery-policy.js"), "utf8");
 const statusScript = readFileSync(join(root, "web/status-context.js"), "utf8");
+const turnScript = readFileSync(join(root, "web/turn-taking.js"), "utf8");
 const buildId = createHash("sha256")
   .update(browserScript)
   .update(telemetryScript)
@@ -28,6 +29,7 @@ const buildId = createHash("sha256")
   .update(clockScript)
   .update(deliveryScript)
   .update(statusScript)
+  .update(turnScript)
   .update(
     ["azure.js", "memory.js", "memory-models.js", "policy.js", "server.js", "store.js", "worker.js", "telemetry.js"]
       .map((name) => readFileSync(join(root, "src/live", name), "utf8"))
@@ -193,12 +195,12 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
-    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js", "/web/delivery-policy.js", "/web/status-context.js"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/web/live.js", "/web/telemetry.js", "/web/memory-context.js", "/web/clock-context.js", "/web/delivery-policy.js", "/web/status-context.js", "/web/turn-taking.js"].includes(url.pathname)) {
       res.writeHead(200, {
         "Content-Type": "application/javascript",
         "Cache-Control": "no-store",
       });
-      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : url.pathname === "/web/delivery-policy.js" ? deliveryScript : url.pathname === "/web/status-context.js" ? statusScript : memoryScript);
+      res.end(url.pathname === "/web/live.js" ? browserScript : url.pathname === "/web/telemetry.js" ? telemetryScript : url.pathname === "/web/clock-context.js" ? clockScript : url.pathname === "/web/delivery-policy.js" ? deliveryScript : url.pathname === "/web/status-context.js" ? statusScript : url.pathname === "/web/turn-taking.js" ? turnScript : memoryScript);
       return;
     }
     if (req.method === "GET" && url.pathname === "/healthz") {

@@ -2,10 +2,11 @@
 // WebRTC/client-delegation guides. Audio interruption never cancels an app job.
 import { BrowserTelemetry } from "./telemetry.js";
 import { MemoryContext } from "./memory-context.js";
-import { ClockContext } from "./clock-context.js";
+import { ClockContext, clockQuestion, clockSnapshot } from "./clock-context.js";
 import { DeliveryPolicy } from "./delivery-policy.js";
 import { statusContext, plainReason } from "./status-context.js";
 import { saveConfirmation } from "./status-context.js";
+import { TurnTaking } from "./turn-taking.js";
 const $ = (id) => document.getElementById(id);
 let auth = document.querySelector('meta[name="voice-auth"]').content;
 const saved = (key) => {
@@ -171,6 +172,8 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pageshow", () => clockContext.refresh());
 window.addEventListener("focus", () => clockContext.refresh());
 const delivery = new DeliveryPolicy();
+// Fix 5: trusted "let them finish" instructions from the live input transcript (turn-taking.js).
+const turnTaking = new TurnTaking();
 // Fix 4: task name, state, minutes, newest Hermes step and plain failure reason. Sent on every
 // job change, and again when the user starts speaking if the minutes have moved since: a timed
 // resend made the model announce progress unasked, and minutes only matter when asked.
@@ -360,7 +363,11 @@ function flushTranscript() {
   });
   return sending;
 }
+// Recent transcript events in order (the save outbox empties once saved).
+const recentTranscript = [];
 function transcript(event) {
+  recentTranscript.push({ session, event });
+  if (recentTranscript.length > 300) recentTranscript.splice(0, 100);
   const role =
     event.type === "session.input_transcript.delta" ? "user" : "assistant";
   if (role !== captionRole || !currentCaption) {
@@ -385,6 +392,13 @@ function transcript(event) {
     );
   }
 }
+/** The user's words since the assistant last spoke in this session (the request being handed off). */
+function lastUserTurn() {
+  const events = recentTranscript.filter((x) => x.session === session).map((x) => x.event);
+  let i = events.length;
+  while (i > 0 && events[i - 1].type !== "session.output_transcript.delta") i--;
+  return events.slice(i).filter((e) => e.type === "session.input_transcript.delta").map((e) => e.delta || "").join("");
+}
 async function delegate(event) {
   const delegation = event.delegation;
   if (!delegation?.id || delegation.target !== "client") return;
@@ -400,6 +414,20 @@ async function delegate(event) {
     );
     record("delegation.cut_off_reply");
     auditApp("delegation.cut_off_reply", { delegation: delegation.id });
+    return;
+  }
+  // A plain time question handed off: the app answers it from the browser clock, at once.
+  const said = lastUserTurn();
+  if (clockQuestion(said)) {
+    append(
+      "session.thinking.append",
+      `No backend task: this is a date or time question. Answer it now yourself in one short sentence from this browser clock, with no acknowledgment first. ${clockSnapshot().context}`,
+      delegation.id,
+      undefined,
+      "clock",
+    );
+    record("delegation.clock_reply");
+    auditApp("delegation.clock_reply", { delegation: delegation.id });
     return;
   }
   const untranscribed = delivery.acceptUntranscribedReply(Date.now());
@@ -464,9 +492,13 @@ async function handle(event, call = activeCall) {
     transcript(event);
     if (event.type === "session.output_transcript.delta") {
       lastAssistantDeltaAt = Date.now();
+      turnTaking.assistantSpeech();
       delivery.assistantSpeech(event, Date.now());
     }
     else {
+      // Before any quiet context, so it is the newest thing the voice has while V is mid-sentence.
+      const turn = turnTaking.userSpeech(event, Date.now());
+      if (turn) append("session.instructions.append", turn.text, null, undefined, "turn-taking");
       memoryContext.userSpoke();
       clockContext.userSpoke();
       const outcome = delivery.userSpeech(event, Date.now());

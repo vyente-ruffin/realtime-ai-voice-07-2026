@@ -179,7 +179,13 @@ export class Call {
   static async open(context) {
     const page = await context.newPage();
     page.on("pageerror", (e) => console.error("[page error]", e.message));
-    await page.goto(base);
+    // A page that does not load is not a measured run: one more try before the set fails.
+    try {
+      await page.goto(base);
+    } catch (err) {
+      console.error("[page load retry]", err.message.split("\n")[0]);
+      await page.goto(base, { timeout: 60000 });
+    }
     return new Call(page);
   }
   async start() {

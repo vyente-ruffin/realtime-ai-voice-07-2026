@@ -87,7 +87,8 @@ test("the page holds memory updates and releases them on user speech", () => {
   assert.match(page, /new MemoryContext\([^;]*\{ holdUntilUser: true \}\)/);
   assert.match(page, /record\("memory.context.held"/);
   assert.match(page, /new ClockContext\([^;]*\{ holdUntilUser: true \}\)/);
-  assert.match(page, /else \{\n\s*memoryContext\.userSpoke\(\);\n\s*clockContext\.userSpoke\(\);\n\s*const outcome = delivery\.userSpeech/);
+  // Fix 5 (Part 3) sends its turn-taking instruction first; the held context is still released here.
+  assert.match(page, /else \{\n(?:.*\n){0,3}\s*memoryContext\.userSpoke\(\);\n\s*clockContext\.userSpoke\(\);\n\s*const outcome = delivery\.userSpeech/);
 });
 
 test("each memory section says it is quiet context, not a cue to speak", () => {

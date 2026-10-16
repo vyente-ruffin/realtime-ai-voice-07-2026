@@ -41,3 +41,15 @@ export class ClockContext extends MemoryContext {
     this.reset();
   }
 }
+
+// Fix 5 (Part 3): a plain date or time question, here or in another city. The speech policy says
+// these come from the browser clock, never a handoff; when the voice hands one off anyway, the app
+// answers that delegation from the clock (client delegation: the application performs the work and
+// returns the result as context; MS Learn, "Delegate work in GPT-Live"). Seen live: "So can you
+// check, uh, what time it is in Tokyo" handed to Hermes with "Let me add the offset." first.
+const TIME_QUESTION = /\b(?:what(?:'s| is)?(?: the)? (?:time|date|day)|what time|time is it|time it is|today'?s date)\b/i;
+const OTHER_WORK = /\b(?:remind|reminder|schedule|book|send|calendar|meeting|alarm|timer|appointment|flight|weather|open|close|until|since|ago|last time|next time)\b/i;
+export function clockQuestion(text) {
+  const s = String(text || "");
+  return TIME_QUESTION.test(s) && !OTHER_WORK.test(s);
+}

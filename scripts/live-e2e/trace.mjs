@@ -133,7 +133,7 @@ export function check(t) {
   const gaps = [];
   for (const s of sends) if (!acks.some((a) => a.ids.event === s.ids.event) && !rejects.some((a) => a.ids.event === s.ids.event)) gaps.push(`send ${s.ids.event} has no ack or rejection`);
   for (const a of acks) if (!sends.some((s) => s.ids.event === a.ids.event)) gaps.push(`ack ${a.ids.event} has no send`);
-  for (const d of has("delegation.received")) if (!has("job.queued", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.cut_off_reply", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.consent_reply", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.consent_reply_untranscribed", (q) => q.ids.delegation === d.ids.delegation).length) gaps.push(`delegation ${d.ids.delegation} has no job or reply record`);
+  for (const d of has("delegation.received")) if (!has("job.queued", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.cut_off_reply", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.consent_reply", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.consent_reply_untranscribed", (q) => q.ids.delegation === d.ids.delegation).length && !has("delegation.clock_reply", (q) => q.ids.delegation === d.ids.delegation).length) gaps.push(`delegation ${d.ids.delegation} has no job or reply record`);
   for (const j of t.jobs) {
     if (!has("job.queued", (l) => l.ids.job === j.id).length) gaps.push(`job ${j.id} has no job.queued row`);
     if (j.run_id && !has("job.run_started", (l) => l.ids.run === j.run_id).length) gaps.push(`job ${j.id} run ${j.run_id} has no job.run_started row`);

@@ -817,3 +817,138 @@ The plan limits Fix 5 to speech instructions. Eight versions of those instructio
 1. Accept the instruction change as is (big improvement, not 5/5), and relax 5a/5b to, say, at least 9 of 10.
 2. Allow app changes outside the instructions: do not send Fix 4's status refresh while the microphone is active (it caused "There's no task running right now" mid-sentence), and hold the first clock snapshot until the user has spoken (connect-time time read-outs). Then re-measure. This would need the Fix 1 and Fix 4 checks re-run.
 3. Re-send the turn-taking rule with `session.instructions.append` (named in the plan's sources) at call start. Untested here, and it adds one more append at connect, where the model already sometimes speaks.
+
+## Part 3 (Oct 16): documented GPT-Live mechanisms beyond the instructions
+
+Build `3798ec4c568756f5` ("version 5"). The live service has run it since 2026-10-16 03:10:06 UTC. `find web src/live -name '*.js' -newermt '2026-10-16 03:10:06'` printed nothing, so the service runs exactly the app code in this commit. The only later change is the test harness (`scripts/live-e2e/harness.mjs`: one retry when the page doesn't load), which is not part of the build id.
+
+### Mechanisms used (Microsoft Learn)
+
+1. **`session.instructions.append`**: "Trusted application instructions that change behavior or speech." Source: [Use GPT-Live for real-time voice](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live), "Add context during the conversation". `web/turn-taking.js` groups the live `session.input_transcript.delta` fragments into turns (the same page says GPT-Live "doesn't emit an authoritative turn-completed event; group fragments into turns in your application"). The page sends a short "the user is still speaking, wait silently" instruction at the first words of each user turn, and once more on a trailing filler ("uh", "um", "…"). Each is sent before any held quiet context is released.
+2. **Client delegation answered by the app**: [Delegate work in GPT-Live](https://learn.microsoft.com/azure/foundry/openai/how-to/gpt-live-delegation). When the voice hands a plain date/time question off anyway (`clockQuestion` in `web/clock-context.js`), the page answers that delegation with a `session.thinking.append` that carries the browser clock and the delegation id. No Hermes job is created. In version 3 this handoff caused every 5b failure (3 jobs, one 8.8 s answer).
+
+### Versions tried in Part 3 (all live, 10-call sets unless noted; `logs/live-e2e/p3-*.log`)
+
+| Version | Mechanism | 5a | 5b | 5c | Hermes jobs |
+| --- | --- | --- | --- | --- | --- |
+| baseline (committed instruction-only Fix 5) | none | 7/10 | 7/10 | 10/10 | 0 |
+| m1 | instructions.append on unfinished words, incl. joining words | 10/10 | 2/10 | 7/10 | — |
+| m2 | instructions.append, start + filler | 9/10 | 7/10 | 10/10 | — |
+| m3 | instructions.append + "answer at once" | 10/10 | 8/10 | 9/10 | 3 |
+| m4 | instructions.append, no "answer at once" | 10/10 | 7/10 | 10/10 | 3 |
+| m5 (this) | instructions.append (start + filler) + app answers clock delegations | see below | | | 0 |
+
+Version 5 measurements:
+
+| Set | Log | 5a | 5b | 5c | Jobs |
+| --- | --- | --- | --- | --- | --- |
+| m5a (previous worker, stopped after 5 by a page-load timeout) | `p3-m5a.log`, `fix5-5abc-1792120218721.json` | 5/5 | 5/5 | 5/5 | 0 |
+| set 1 | `p3-m5-set1.log`, `fix5-5abc-1792122816119.json` | **10/10** | **10/10** | 10/10 | 0 |
+| set 2 | `p3-m5-set2.log`, `fix5-5abc-1792123775690.json` | **9/10** | **9/10** | 10/10 | 0 |
+| total | | 24/25 | 24/25 | 25/25 | 0 |
+
+Command for each set: `node scripts/live-e2e/fix5.mjs 5abc 10`. Every call: its own test conversation, `fix5-judge.mjs` scoring from `fragments` (`SELECT session,role,text,at,start_ms,end_ms FROM fragments WHERE conversation=? ORDER BY at,rowid`) and `jobs` (`SELECT id,state,title,created,updated FROM jobs WHERE conversation=? ORDER BY created`), then `cleanup.mjs`.
+
+Set 1 raw verdicts:
+```
+1 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " 12:53 PM in Tokyo." @ 7600 lastUser@ 7400
+2 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Okay. It's 12:56 PM on Friday in Tokyo, Japan time." @ 7600 lastUser@ 7400
+3 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer "Let me do the timezone math. It's 12:58 p.m. on Friday in To" @ 7600 lastUser@ 7400
+4 5a True 5b True 5c True jobs 0 latencyMs 200 inPause "" answer "Hmm... It's 1 PM on Friday in Tokyo." @ 7800 lastUser@ 7400
+5 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " [hum] It's 1:01 PM on Friday in Tokyo." @ 7600 lastUser@ 7400
+6 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Right now it's about 1:03 PM on Friday in Tokyo." @ 7600 lastUser@ 7400
+7 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It's 1:04 PM on Friday in Tokyo." @ 7600 lastUser@ 7400
+8 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Okay, it's two-oh-six PM Friday in Tokyo, Japan time." @ 7600 lastUser@ 7400
+9 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Two-oh-seven PM on Friday in Tokyo." @ 7400 lastUser@ 7400
+10 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It's 1:09 in the afternoon in Tokyo, Japan time." @ 7400 lastUser@ 7400
+SUMMARY 5a 10/10 (need 10/10) | 5b 10/10 (need 10/10) | 5c 10/10 (need >=4/5) | latencies ms [0,0,0,200,0,0,0,0,0,0]
+```
+
+Set 2 raw verdicts:
+```
+1 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Let me convert that quickly.It's 1:09 PM on Friday in Tokyo" @ 7600 lastUser@ 7400
+2 5a True 5b True 5c True jobs 0 latencyMs 600 inPause "" answer " It\u2019s 1:11 PM on Friday, October 16th, in Tokyo." @ 8200 lastUser@ 7400
+3 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " Lemme do that. It's 1:12 PM on Friday in Tokyo." @ 7600 lastUser@ 7400
+4 5a False 5b False 5c True jobs 0 latencyMs 600 inPause " Uh... can you tell me what time it" answer " Okay, that\u2019s 1:14 PM Friday in Tokyo." @ 9600 lastUser@ 8800
+5 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It's 1:15 PM Friday in Tokyo." @ 7400 lastUser@ 7400
+6 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It's 1:16 PM in Tokyo right now." @ 7600 lastUser@ 7400
+7 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It\u2019s 1:18 PM on Friday in Tokyo." @ 7600 lastUser@ 7400
+8 5a True 5b True 5c True jobs 0 latencyMs 200 inPause "" answer " It's 1:19 PM Friday in Japan time." @ 7800 lastUser@ 7400
+9 5a True 5b True 5c True jobs 0 latencyMs 0 inPause "" answer " It's 1:21 PM in Tokyo." @ 7600 lastUser@ 7400
+10 5a True 5b True 5c True jobs 0 latencyMs 200 inPause "" answer " Hmm, okay. It's 1:22 pm Friday in Tokyo." @ 7800 lastUser@ 7400
+SUMMARY 5a 9/10 (need 10/10) | 5b 9/10 (need 10/10) | 5c 10/10 (need >=4/5) | latencies ms [0,600,0,600,0,0,0,200,0,200]
+```
+
+Set 2 run 4 (the one failure), raw fragments (conversation `bf9cd7a8-a273-4dd1-966e-35037152f4ae`, session `live_EZTcMpD93sFLAnCL6ZkXo`):
+```
+  user      start_ms=  3800 end_ms=  4000 at=1792124044130 " So can"
+  user      start_ms=  4000 end_ms=  4200 at=1792124044131 " you"
+  assistant start_ms=  4400 end_ms=  4600 at=1792124044131 " Uh..."
+  assistant start_ms=  5000 end_ms=  5200 at=1792124044829 " can"
+  assistant start_ms=  5400 end_ms=  5600 at=1792124045530 " you"
+  assistant start_ms=  6200 end_ms=  6400 at=1792124045531 " tell"
+  assistant start_ms=  6400 end_ms=  6600 at=1792124045531 " me"
+  assistant start_ms=  7000 end_ms=  7200 at=1792124046231 " what"
+  assistant start_ms=  7200 end_ms=  7400 at=1792124046232 " time"
+  assistant start_ms=  7600 end_ms=  7800 at=1792124046233 " it"
+  user      start_ms=  7800 end_ms=  8000 at=1792124046234 " What"
+  user      start_ms=  8000 end_ms=  8200 at=1792124046930 " time"
+  user      start_ms=  8200 end_ms=  8400 at=1792124046931 " it is"
+  user      start_ms=  8800 end_ms=  9000 at=1792124047630 " in Tokyo"
+  assistant start_ms=  9600 end_ms=  9800 at=1792124048329 " Okay,"
+  assistant start_ms= 10200 end_ms= 10400 at=1792124048331 " that’s"
+  assistant start_ms= 10400 end_ms= 10600 at=1792124049029 " 1"
+  assistant start_ms= 10600 end_ms= 10800 at=1792124049030 ":14"
+  assistant start_ms= 11200 end_ms= 11400 at=1792124049031 " PM"
+  assistant start_ms= 11600 end_ms= 11800 at=1792124049031 " Friday"
+  assistant start_ms= 12200 end_ms= 12400 at=1792124049729 " in"
+  assistant start_ms= 12400 end_ms= 12600 at=1792124049730 " Tokyo."
+```
+The voice said "Uh... can you tell me what time it" during the pause, from 4400 ms. It spoke V's own question back instead of answering. Model sends in that call (`SELECT kind,payload,at FROM audit WHERE conversation=? AND kind='model.send'`, ms relative to the first user fragment row): `job-status/thinking@-1612 turn-taking/instructions@-692 clock/thinking@-687 turn-taking/instructions@2017 clock/thinking@3540 clock/thinking@3545`. The 19 passing calls in sets 1 and 2 show the same pattern before the voice speaks: job-status about 1.2–1.6 s before, then the turn-taking instruction and the held clock context together about 0.2–0.7 s before. Nothing the app sent explains this one. The voice "decides when to respond" itself (MS Learn, [What is GPT-Live](https://learn.microsoft.com/azure/foundry/openai/concepts/gpt-live)).
+
+Also seen, not part of 5a–5c: set 1 runs 8 and 9 named the wrong hour ("two-oh-six PM" and "Two-oh-seven PM" when Tokyo time was about 1:06–1:07 PM). The clock context had the right time.
+
+## Part 3 verdicts
+
+### 5a: FAIL (best measured: 24/25 on version 5)
+Done requires 10/10 on two separate 10-call sets. Measured: set 1 10/10, set 2 9/10. Part 3 used 65 live calls on mid-turn-instruction versions (m1–m4: 40; m5: 25), more than the 40 the fallback rule asks for. So version 5 is kept as the best measured version: 24 of 25 calls without speech in the pause, up from 7/10 at baseline.
+
+### 5b: FAIL (best measured: 24/25 on version 5)
+Same calls. Set 1 10/10, set 2 9/10. The only failure is the same call as 5a. Hermes jobs: 0 in all 25 version-5 calls (versions 3 and 4: 3 per 10).
+
+### 5c: PASS
+25/25 within 3 s (set 1 latencies `[0,0,0,200,0,0,0,0,0,0]`, set 2 `[0,600,0,600,0,0,0,200,0,200]`; need 9/10).
+
+### 5d: PASS
+Command: `node scripts/live-e2e/fix5.mjs 5d`, run after `SELECT COUNT(*) AS n FROM jobs WHERE state IN ('queued','running','awaiting_permission')` → `[{"n":0}]`.
+```
+=== 5d (1c rerun) PASS session=live_EZTmIdQOuVobuh2bFnePD
+SQL: SELECT MIN(at) AS at,MIN(start_ms) AS start_ms FROM fragments WHERE session=? AND role='user' AND at>=? AND text LIKE '%top%'  ARGS: ["live_EZTmIdQOuVobuh2bFnePD",1792124675378]
+ROWS: {"at":1792124677143,"start_ms":22200}
+SQL: SELECT role,text,at,start_ms,end_ms FROM fragments WHERE session=? AND role='assistant' AND start_ms>?+1000 AND start_ms<=?+31000  ARGS: ["live_EZTmIdQOuVobuh2bFnePD",22200,22200]
+ROWS: []
+SQL: SELECT role,text,at,start_ms,end_ms FROM fragments WHERE session=? AND role='assistant' AND at>? AND at<=?  ARGS: ["live_EZTmIdQOuVobuh2bFnePD",1792124677143,1792124707143]
+ROWS: []
+SQL: SELECT job,state,session,updated FROM deliveries WHERE session=? AND updated>? AND updated<=?  ARGS: ["live_EZTmIdQOuVobuh2bFnePD",1792124677143,1792124707143]
+ROWS: []
+SQL: SELECT id,state,updated FROM jobs WHERE id IN (?,?)  ARGS: ["80ed9556-c94d-4453-af22-b43c84651218","18194c33-26ae-48f8-b68b-d5c6086d7156"]
+ROWS: [{"id":"18194c33-26ae-48f8-b68b-d5c6086d7156","state":"completed","updated":1792124670600},{"id":"80ed9556-c94d-4453-af22-b43c84651218","state":"completed","updated":1792124667434}]
+first offered job=80ed9556-c94d-4453-af22-b43c84651218; second result final and still waiting=true
+TRANSCRIPT [["user",1792124657773,"Automated voice test for Hermes. Choose one random gemstone yourself, then reply with exactly these sentences and nothing else, without using any tools: The lantern stone is <the gemstone>. The lantern is painted green and hangs beside the north door. It was checked this morning and works well.Automated voice test for Hermes. Choose one random river in South America yourself, then reply with exactly these sentences and nothing else, without using any tools: The test river is <the river>. Its gauge sits under an old stone bridge. It was read at noon today. This is an voice test, and I am counting slowly. One, two, three, four, five, six, seven, eight, nine, 
+[cleanup] {"run":"fix5-5d-mvagqwep","testConversations":1,"hermesSessions":["voice-2e7fd8f1-d4d7-4b16-8717-6eae48ff8739-live_EZTmIdQOuVobuh2bFnePD"],"oneshotSessions":0,"voiceSaveDocuments":0,"memoriesFound":1,"bySource":{"hermes-session":1},"invalidated":1,"prunedWithTheirSource":0,"stillValidPerSession":{"voice-2e7fd8f1-d4d7-4b16-8717-6eae48ff8739-live_EZTmIdQOuVobuh2bFnePD":0},"retainsStillPending":0,"recallHitsForTestWords":{},"preparedMemoryRefreshed":[],"hermesMemoryFileHits":[],"preparedMemoryHitsForTestWords":{"jarvis-voice-profile":[],"jarvis-voice-preferences":[],"jarvis-voice-current":[]}}
+[isolation] owner conversation new fragments: 0
+
+Results: /home/localadmin/homelab/realtime-ai-voice-memory/logs/live-e2e/fix5-5d-1792124653176.json
+```
+PASS: 0 assistant fragments more than 1 s after "stop", 0 deliveries in the 30 s, second result final and still waiting.
+
+### Tests and isolation
+`npm run -s test:live`: 172 pass, 0 fail (re-run after the harness change). `[isolation] owner conversation new fragments: 0` appears for all 20 calls plus 5d. Direct check over the whole session:
+```
+SQL: SELECT COUNT(*) AS n, MAX(at) AS newest FROM fragments WHERE conversation=? AND at>=? ARGS: ["ccad5a2f-2433-4361-bfc8-bba14d7973e9",1792122813022]
+ROWS: [{"n":0,"newest":null}]
+```
+No service restart in this session. `/healthz` reports `"status":"ready"`, `"buildId":"3798ec4c568756f5"`.
+
+### What is left
+The app-side triggers this work found are now controlled: the turn-taking instruction, the clock handoffs, and held context. The 1 remaining failure in 25 is the model speaking in a pause with nothing new from the app. To reach 0 for certain would need either a GPT-Live turn-taking control (none is documented: the session object rejects unknown fields), or V accepting about 1 in 25.
