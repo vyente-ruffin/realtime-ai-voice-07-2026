@@ -4,17 +4,19 @@ Jarvis is a browser voice assistant that uses Azure GPT-Live for conversation, H
 
 ## Current status
 
-As of 2026-10-15, seven fixes are live on branch `claude/voice-fixes` (Fixes 1-4 also merged to `main`). Each fix was checked with live test calls against a measurable definition of done ([fix plan](docs/VOICE-FIX-PLAN.md), evidence in `docs/evidence/`). 153 regression tests pass.
+As of 2026-10-16, an ordinary conversation works end to end. The live service runs commit `98dfa04` on branch `claude/voice-fixes` (build `15d58281245485b0`; Fixes 1-4 are also merged to `main`). In a test conversation (a greeting, a pause mid-sentence, the time in Tokyo, a typed Hermes task, a question while it runs, the task's result, "Stop.", then "what were we just talking about?") Jarvis got everything right in 10 calls in a row. It stays silent on connect and through the pause. It doesn't add the time to small talk, gives the right Tokyo time, answers "Paris" without making anything up, reads the result once in English, goes quiet after "Stop", and answers the next question. Other cities' times were right in 10 of 10 calls. 206 regression tests pass. Evidence: [conversation](docs/evidence/conversation.md); the other fixes are in `docs/evidence/` ([fix plan](docs/VOICE-FIX-PLAN.md)).
 
-1. **No unasked results.** Connecting is silent. Results are spoken only in the call that asked for them, never after "stop".
+1. **No unasked results.** Connecting is silent. Results are spoken only in the call that asked for them, once, never after "stop".
 2. **Same JARVIS.** Background work runs on the main Hermes profile's API server (Runs API), one Hermes session per call.
 3. **Memory answers.** Questions about V are answered from memory, starting within 10 s, with follow-ups.
-4. **Honest status.** Task name, state, minutes, latest step, plain failure reason.
-5. **Let V finish (partial).** Jumps in during mid-sentence pauses 2 in 10 calls (was 4 in 5). GPT-Live has no turn-taking setting, so this is steered by instructions only.
+4. **Honest status.** Task name, state, minutes, latest step, plain failure reason, when V asks.
+5. **Let V finish.** No jumping in during a mid-sentence pause in 10 of 10 test calls, one answer each, within 3 s.
 6. **No made-up claims.** "Saved" only after the save completes; job claims only with a real job.
 7. **Dropped calls.** After a reconnect it says only "We got cut off. Want me to finish what I was saying?" and never resumes a half sentence.
 
-Also live: the 2026-10-14 logging fixes (browser playback and microphone state). Fixed 2026-10-15: quiet memory and clock updates sent before V spoke could make it speak first (1 in 10 calls); now 0 in 10. Open: one requested result was read twice in a Fix 1 check (also seen Oct 9). The old `hermes-gateway-voice.service` is stopped and disabled.
+What made the difference: the app no longer sends the voice extra text while either side is talking. Text sent then made it miss V's next words, echo V, switch to Korean, or blurt out the time. Memory updates now wait for the next call. Task status goes out only when V asks about it. The time is in place before V asks. If a finished question gets no answer within 2.5 s, the app tells the voice once to answer.
+
+Still not perfect: the greeting is sometimes answered with "nothing's running right now" (2 in 10). Very rarely, words were missed with nothing sent nearby. The old `hermes-gateway-voice.service` is stopped and disabled.
 
 ## How it works
 
@@ -27,8 +29,7 @@ flowchart LR
     V -->|Save memories in background| H[Hindsight]
     H -->|Refresh after processing new memories| M[Three short personal summaries]
     M -->|Read at startup and every 60 seconds| V
-    V -->|Send changed summaries| B
-    B -->|Quiet memory updates| A
+    V -->|Memory, clock and task status in each call's instructions| A
     A -->|Request missing information or a task| B
     B -->|Delegate work through voice server| W[Main Hermes API server]
     W -->|Look up deeper memories when needed| H
