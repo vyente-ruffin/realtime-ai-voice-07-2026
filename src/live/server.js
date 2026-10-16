@@ -373,7 +373,7 @@ const server = createServer(async (req, res) => {
             store.jobs(conversation.id),
             { instructions: b.instructions, pace: b.pace, timeZone },
           ),
-          history: liveHistory(store.history(conversation.id), store.cutOffSessions(conversation.id)),
+          history: liveHistory(store.history(conversation.id), store.cutOffSessions(conversation.id), store.undelivered(conversation.id)),
         });
       } catch (err) {
         // Correlate a failed start with the browser's call ID; never the offer, prompt or history.

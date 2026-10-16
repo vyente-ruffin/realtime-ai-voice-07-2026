@@ -45,7 +45,7 @@ const fields = {
     "session.thinking.appended", "session.commentary.appended", "session.instructions.appended"]),
   eventId: identifier,
   delegationId: value => value === null || identifier(value),
-  purpose: choices(["memory", "clock", "job-status", "result", "consent", "cut-off", "save-confirmation", "instructions", "unknown"]),
+  purpose: choices(["memory", "clock", "job-status", "result", "consent", "cut-off", "save-confirmation", "instructions", "typed", "unknown"]),
   contentLength: number, sentAt: number, ackAt: number, ackMs: number,
 };
 

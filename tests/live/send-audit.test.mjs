@@ -151,6 +151,11 @@ test("send audit: every send path records a row with its purpose, length, ids an
   await p.evaluate(() => window.testSources.at(-1).onmessage({ data: JSON.stringify({ type: "memory.context",
     models: [{ id: "m1", revision: "r2", context: "Personal memory section m1. PRIVATE_MEMORY_SENTINEL" }] }) }));
   await say(p, "Yes, tell me.", 3000);
+  // The voice hands the yes to the backend (seen live): the app answers it and creates no job.
+  await event(p, { type: "session.delegation.created", delegation: { id: "item_yes", target: "client" } });
+  const reply = await waitFor(() => sentWith(p, /the results the user just accepted/), "consent handoff reply");
+  assert.equal(reply.delegation_id, "item_yes");
+  assert.equal(reply.type, "session.thinking.append");
   await waitFor(() => sentWith(p, /PRIVATE_MEMORY_SENTINEL/), "memory send");
   await waitFor(() => sentWith(p, /Current browser-local date and time/), "clock send");
   // result: read after the yes settles and a fresh pause.
@@ -217,6 +222,8 @@ test("send audit: every send path records a row with its purpose, length, ids an
     assert.ok(row, `${kind} audit row`);
     assert.ok(row.callId && row.session && row.at, `${kind} carries call, session and time`);
   }
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM jobs WHERE delegation='item_yes'").get().n, 0, "the yes is not run as a new job");
+  assert.equal(rows(db, "delegation.consent_reply")[0]?.delegation, "item_yes");
   assert.equal(db.prepare("SELECT COUNT(*) n FROM audit WHERE payload LIKE '%PRIVATE_%'").get().n, 0, "content text is never logged");
   assert.deepEqual(errors, []);
 });

@@ -278,6 +278,13 @@ export class VoiceStore {
       )
       .run(Date.now(), cutoff).changes;
   }
+  /** Jobs whose result the user has not heard yet: no delivery, still available, or cut off. An
+   * "offered" row is ambiguous or the closed Fix 1 backlog, never pending. */
+  undelivered(conversation) {
+    return this.db
+      .prepare("SELECT j.id,j.session,j.created FROM jobs j LEFT JOIN deliveries d ON d.job=j.id WHERE j.conversation=? AND (d.state IS NULL OR d.state IN ('available','cut_off'))")
+      .all(conversation);
+  }
   delivery(job) {
     return this.db.prepare("SELECT * FROM deliveries WHERE job=?").get(job);
   }
@@ -401,6 +408,7 @@ export function joinedTurns(fragments) {
         text: f.text,
         session: f.session,
         end_ms: f.end_ms,
+        at: f.at,
       });
   }
   return turns;
@@ -412,10 +420,19 @@ export function markCutOff(text) {
   const kept = text.match(/^[\s\S]*[.!?](?=\s|$)/)?.[0] || "";
   return `${kept} ${CUT_OFF_NOTE}`.trim();
 }
-export function liveHistory(fragments, cutOffSessions = new Set()) {
+/** A request handed to Hermes whose result the user has not heard: a new session answered it from
+ * this history instead of the waiting line, with a made-up result (seen live). */
+export const PENDING_NOTE = "[Handed to Hermes as a task. The app holds its result and supplies it only when the user accepts; never answer this request or guess its result yourself.]";
+export function liveHistory(fragments, cutOffSessions = new Set(), pendingJobs = []) {
   const history = [];
   let remaining = 6000;
   const turns = joinedTurns(fragments);
+  // Each pending job's request is the last user turn of its session before the job was created.
+  const pending = new Set();
+  for (const job of pendingJobs) {
+    const i = turns.findLastIndex((t) => t.role === "user" && t.session === job.session && t.at <= job.created);
+    if (i >= 0) pending.add(turns[i]);
+  }
   // The last assistant turn of a session that dropped mid-speech is the cut-off answer.
   const cut = new Set();
   for (const session of cutOffSessions) {
@@ -425,6 +442,7 @@ export function liveHistory(fragments, cutOffSessions = new Set()) {
   for (const turn of turns.reverse()) {
     let text = turn.text.trim().slice(-1200);
     if (text && cut.has(turn)) text = markCutOff(text);
+    if (text && pending.has(turn)) text = `${text.slice(-(1200 - PENDING_NOTE.length - 1))} ${PENDING_NOTE}`;
     if (!text) continue;
     if (history.length === 24 || text.length > remaining) break;
     remaining -= text.length;

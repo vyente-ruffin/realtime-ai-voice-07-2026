@@ -34,6 +34,8 @@ export class DeliveryPolicy {
     this.question = null; // what the pending yes/no answers: "waiting" or "cutoff"
     this.cutoff = null; // Fix 7: { job, at, asked, finish } after a drop cut an answer off
     this.cutOffYesAt = -Infinity; // when the user said yes to finishing it
+    this.waitingYes = null; // { at, turn }: when the user said yes to the waiting line, and that turn
+    this.userTurns = 0; // user turns started this call
     this.consentParts = []; // user speech after the waiting line: [start_ms, end_ms, text]
     this.lineEndMs = 0; // where the waiting line ended on the session clock
     this.lastUserAt = 0;
@@ -51,6 +53,16 @@ export class DeliveryPolicy {
     this.sessions.add(id);
     this.spoken = []; // provider audio clocks restart per session
     this.heardSpans = [];
+    // A waiting line not yet answered belongs to the session that said it: the new session never
+    // got it (or its "say only Okay"), and a yes there was met with a made-up result before the
+    // real one (seen live after two drops). Ask again in the new session.
+    if (this.awaitingConsent && this.question === "waiting") {
+      for (const job of this.asked) if (!this.approved.has(job)) this.asked.delete(job);
+      this.awaitingConsent = false;
+      this.question = null;
+      this.consentParts = [];
+      this.activitySincePush = true;
+    }
   }
   /** Fix 7: the connection dropped mid-answer. `job` is the result being read, or null when the
    * cut-off answer was the model's own. Offer to finish it once, at the first pause after reconnect. */
@@ -68,6 +80,32 @@ export class DeliveryPolicy {
       return YES.test(text) && !NO.test(text) && text.split(/\s+/).length <= 6;
     }
     return now - this.cutOffYesAt < 10000;
+  }
+  /** A handoff made by the user's yes to the waiting line is not new work: the app already has
+   * those results and reads them itself. Seen live (Fix 7 7c, Fix 1 1b): the voice handed "Yes,
+   * tell me" to Hermes, Hermes repeated the result and it was read twice. True while that yes is
+   * being said, and for 10 s after it settles unless the user has started a new turn since. */
+  waitingReply(now) {
+    if (this.awaitingConsent && this.question === "waiting") {
+      const text = this.consentParts.map((part) => part[2]).join("").trim();
+      return YES.test(text) && !NO.test(text) && text.split(/\s+/).length <= 6;
+    }
+    return Boolean(this.waitingYes && now - this.waitingYes.at < 10000 && this.userTurns === this.waitingYes.turn);
+  }
+  /** A handoff while the waiting line is unanswered and none of the user's reply has been
+   * transcribed: the voice heard a reply the transcript missed and handed it off (seen live: "Yes,
+   * tell me" never transcribed; the re-run gave a different result). Its handoff is that reply, and
+   * the voice took it as asking for the results, so it counts as the yes. Returns true if taken. */
+  acceptUntranscribedReply(now) {
+    if (!this.awaitingConsent || this.question !== "waiting") return false;
+    if (/\w/.test(this.consentParts.map((part) => part[2]).join(""))) return false;
+    this.awaitingConsent = false;
+    this.question = null;
+    this.consentParts = [];
+    for (const id of this.asked) this.approved.add(id);
+    this.waitingYes = { at: now, turn: this.userTurns };
+    this.activitySincePush = true;
+    return true;
   }
   fromThisCall(job) {
     return this.sessions.has(job.session);
@@ -105,7 +143,10 @@ export class DeliveryPolicy {
       this.heardSpans = [...this.heardSpans.slice(-199), [event.start_ms, event.end_ms]];
       if (overlaps(this.spoken, event)) this.holdUntil = now + OVERLAP_HOLD_MS;
     }
-    if (!this.turn.text || now - this.turn.at > 1800) this.turn = { text: "", at: now, startMs: event.start_ms };
+    if (!this.turn.text || now - this.turn.at > 1800) {
+      this.turn = { text: "", at: now, startMs: event.start_ms };
+      this.userTurns++;
+    }
     // Talking over the assistant: this turn began inside assistant speech that
     // had already started. A reply starts after the turn began, so it never counts,
     // even when its coarse timestamps overlap the turn's last words.
@@ -136,7 +177,7 @@ export class DeliveryPolicy {
   }
   /** The reply to the waiting line, once the user has finished it. */
   settleConsent(now) {
-    if (!this.awaitingConsent || now - this.lastUserAt < CONSENT_SETTLE_MS) return null;
+    if (!this.awaitingConsent) return null;
     // Only speech that began after the line ended and overlaps no assistant speech is a
     // reply; stray transcript fragments during the line (seen live) are not.
     const text = this.consentParts
@@ -144,6 +185,12 @@ export class DeliveryPolicy {
       .map((part) => part[2])
       .join("")
       .trim();
+    // Fix 7: a clear yes to "want me to finish?" counts the moment it is heard. Waiting 1.2 s for it
+    // to settle let the voice say "Okay" and make up its own continuation, and the real answer that
+    // followed was never read (seen live).
+    // The same holds for the waiting line: in the wait the voice told a made-up result after "Okay".
+    const clearYes = YES.test(text) && !NO.test(text) && text.split(/\s+/).length <= 6;
+    if (!clearYes && now - this.lastUserAt < CONSENT_SETTLE_MS) return null;
     if (!/\w/.test(text)) return null;
     this.awaitingConsent = false;
     this.consentParts = [];
@@ -154,7 +201,10 @@ export class DeliveryPolicy {
         this.cutOffYesAt = now;
         if (this.cutoff.job) this.approved.add(this.cutoff.job);
         else this.cutoff.finish = true;
-      } else for (const id of this.asked) this.approved.add(id);
+      } else {
+        for (const id of this.asked) this.approved.add(id);
+        this.waitingYes = { at: now, turn: this.userTurns };
+      }
       return "consent";
     }
     if (question === "cutoff") this.cutoff = null; // declined: the result stays cut off, never pushed
@@ -172,6 +222,15 @@ export class DeliveryPolicy {
       if (job) return { kind: "result", job, resume: true };
     }
     if (this.locked || !this.activitySincePush || now < this.holdUntil) return null;
+    // After a yes to the waiting line the first accepted result goes at once, even while the voice
+    // says "Okay", without waiting for a pause: in that wait the voice told its own made-up version
+    // (seen live). An overlap hold or a stop still applies.
+    if (this.waitingYes && !this.waitingYes.used) {
+      const accepted = jobs
+        .filter((j) => FINAL.includes(j.state) && (j.delivery || "available") === "available" && this.approved.has(j.id))
+        .sort((a, b) => a.updated - b.updated)[0];
+      if (accepted) return { kind: "result", job: accepted, accepted: true };
+    }
     if (!this.paused(now, assistantSpeaking)) return null;
     if (cut && !cut.asked && !this.awaitingConsent && now - cut.at >= PAUSE_MS) return { kind: "cutoff", text: CUTOFF_LINE };
     const waiting = jobs
@@ -200,6 +259,7 @@ export class DeliveryPolicy {
       this.lineEndMs = 0;
     }
     if (step.kind === "finish" || step.resume) this.cutoff = null;
+    if (step.accepted) this.waitingYes.used = true;
     if (step.kind === "waiting") {
       for (const j of step.jobs) this.asked.add(j.id);
       this.question = "waiting";

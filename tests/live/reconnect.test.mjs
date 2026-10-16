@@ -86,9 +86,8 @@ test("7b: 'yes, finish' brings the cut-off result back in full; a 'no' leaves it
   p.sent(p.next([job], 5000, false), 5000);
   p.assistantSpeech(out("We got cut off.", 0, 2000), 5100);
   p.userSpeech(user("Yes, finish.", 3000), 8000);
-  assert.equal(p.next([job], 9000, false), null, "the yes is still being said");
-  // At once after the yes settles, even while the voice says "Okay": no pause to retell it in.
-  const step = p.next([job], 9200, true);
+  // A clear yes counts at once, even while the voice says "Okay": no wait to retell it in.
+  const step = p.next([job], 8100, true);
   assert.equal(p.settled, "consent");
   assert.deepEqual(step, { kind: "result", job, resume: true });
   p.sent(step, 11_000);
@@ -247,4 +246,52 @@ test("judge 7b: the key word, 80% of the result's words and a re-delivery after 
   assert.equal(twice.repeats, 2);
   assert.equal(twice.pass, false, "read twice");
   assert.equal(verdict7b({ spoken: result, result, key: "puffin", delivery, yesAt: 10, session: "s2", rerunJobs: 1 }).pass, false, "the finish re-run as a job");
+});
+
+test("7b: a clear yes to the cut-off offer counts at once, not 1.2 s later (the voice made up a continuation in that wait)", () => {
+  const p = new DeliveryPolicy();
+  p.joinSession("s2");
+  p.cutOff("j1", 0);
+  const jobs = [{ id: "j1", session: "s1", state: "completed", delivery: "cut_off", updated: 1 }];
+  p.sent(p.next(jobs, 5000, false), 5000);
+  p.assistantSpeech(out("We got cut off.", 0, 2000), 5100);
+  p.userSpeech(user("Yes, finish.", 3000), 8000);
+  const step = p.next(jobs, 8050, false);
+  assert.equal(p.settled, "consent", "settled 50 ms after the yes");
+  assert.deepEqual(step, { kind: "result", job: jobs[0], resume: true });
+  // A no, or a longer reply, still waits for the whole turn.
+  const q = new DeliveryPolicy();
+  q.joinSession("s2");
+  q.cutOff("j1", 0);
+  q.sent(q.next(jobs, 5000, false), 5000);
+  q.userSpeech(user("No, check the weather in Paris.", 3000), 8000);
+  assert.equal(q.next(jobs, 8050, false), null);
+  assert.equal(q.settled, null);
+});
+
+test("double read: a handed-off request whose result the user has not heard is marked in the next session's history", () => {
+  const fragments = [
+    { role: "user", text: "Check the disk space, please.", session: "s1", at: 1000, start_ms: 0, end_ms: 1000 },
+    { role: "assistant", text: "Looking into it now.", session: "s1", at: 1500, start_ms: 1200, end_ms: 2000 },
+    { role: "user", text: "Thanks, bye.", session: "s1", at: 9000, start_ms: 9000, end_ms: 9500 },
+  ];
+  const history = liveHistory(fragments, new Set(), [{ id: "j1", session: "s1", created: 1200 }]);
+  assert.match(history[0].content[0].text, /^Check the disk space, please\. \[Handed to Hermes as a task\. The app holds its result/);
+  assert.equal(history[2].content[0].text, "Thanks, bye.", "only the request turn is marked");
+  assert.equal(liveHistory(fragments)[0].content[0].text, "Check the disk space, please.", "nothing pending: unmarked");
+  // The store lists only jobs whose result was never delivered (not offered/injected ones).
+  const dir = mkdtempSync(join(tmpdir(), "voice-pending-"));
+  const store = new VoiceStore(join(dir, "state.sqlite"));
+  try {
+    const c = store.createConversation().id;
+    const a = store.enqueue(c, "s1", "d1", "user: a"), b = store.enqueue(c, "s1", "d2", "user: b"), d = store.enqueue(c, "s1", "d3", "user: c");
+    for (const j of [a, b, d]) store.updateJob(j.id, "completed", { result: "r" });
+    const offer = store.offer(store.job(b.id), "s1");
+    store.deliveryAck(b.id, "s1", offer.event);
+    store.offer(store.job(d.id), "s1");
+    assert.deepEqual(store.undelivered(c).map((j) => j.id), [a.id]);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -187,7 +187,7 @@ export class Call {
     await this.page.click("#startBtn");
     const response = await live;
     const body = await response.json();
-    if (!response.ok || !body.session?.id) throw Object.assign(new Error(`Call did not start: HTTP ${response.status} ${body.title || ""}`.trim()), { connect: true });
+    if (!response.ok() || !body.session?.id) throw Object.assign(new Error(`Call did not start: HTTP ${response.status()} ${body.title || ""}`.trim()), { connect: true });
     this.session = body.session.id;
     await this.page.waitForFunction(() => window.__voiceLabEvents.some((e) => e.type === "session.started"), null, { timeout: 30000 });
     return this.session;

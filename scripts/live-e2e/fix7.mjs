@@ -87,7 +87,9 @@ for (let i = 0; i < runs; i++) {
       const early = f2.filter((f) => f.role === "assistant" && f.at > yesAt && (!delivery || f.at <= delivery.updated)).map((f) => f.text).join("");
       const rerun = query("SELECT id,delegation,created,substr(result,1,80) AS result FROM jobs WHERE conversation=? AND session=?", record.conversation, record.s2);
       console.log(`SQL: SELECT id,delegation,created,substr(result,1,80) AS result FROM jobs WHERE conversation=? AND session=? [${record.conversation}, ${record.s2}]\n${JSON.stringify(rerun)}`);
-      record.verdict7b = verdict7b({ spoken, result: j.result || "", key, delivery, yesAt, session: record.s2, early, rerunJobs: rerun.length });
+      // "Re-delivered after the yes" is anchored on when the yes audio began (this machine's clock):
+      // the page can inject on hearing "Yes" before the server has received that batched fragment.
+      record.verdict7b = verdict7b({ spoken, result: j.result || "", key, delivery, yesAt: record.yes.startedAt, session: record.s2, early, rerunJobs: rerun.length });
       const cutAudit = query("SELECT kind,payload,at FROM audit WHERE conversation=? AND kind IN ('session.cut_off','result.cut_off_offered','delivery.consent','delivery.declined') ORDER BY at", record.conversation);
       console.log(`SQL: SELECT kind,payload,at FROM audit WHERE conversation=? AND kind IN (...) [${record.conversation}]\n${JSON.stringify(cutAudit)}`);
       console.log(`7a run ${i + 1}: ${record.verdict7a.pass ? "PASS" : "FAIL"} ${JSON.stringify(record.verdict7a)}`);

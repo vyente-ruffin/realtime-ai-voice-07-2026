@@ -402,6 +402,23 @@ async function delegate(event) {
     auditApp("delegation.cut_off_reply", { delegation: delegation.id });
     return;
   }
+  const untranscribed = delivery.acceptUntranscribedReply(Date.now());
+  if (untranscribed || delivery.waitingReply(Date.now())) {
+    // The yes to "N things finished while you were away" is not a new task: handed off, Hermes
+    // re-ran it and the result was read twice (seen live). The app reads the accepted results.
+    append(
+      "session.thinking.append",
+      "No backend task: the app already has the results the user just accepted and supplies them now. Say nothing about this handoff.",
+      delegation.id,
+      undefined,
+      "consent",
+    );
+    const kind = untranscribed ? "delegation.consent_reply_untranscribed" : "delegation.consent_reply";
+    record(kind);
+    auditApp(kind, { delegation: delegation.id });
+    if (untranscribed) auditApp("delivery.consent");
+    return;
+  }
   try {
     const result = await api("/api/delegations", {
       conversation,
@@ -579,9 +596,13 @@ async function deliver() {
   }
   if (!step) return;
   if (step.kind === "waiting") {
+    // The rule for the reply (only "Okay", never a made-up result) is in the session instructions:
+    // an instructions.append here made the voice speak its own line or a made-up result (seen live).
     const ids = append(
       "session.commentary.append",
-      `Say exactly this one short sentence aloud, then stop and wait for the user: "${step.text}" Do not name, describe or guess these results. The app supplies each one only after the user says yes; if they do, say only a brief okay and wait for it. Never answer it from memory or the earlier conversation.`,
+      // Only the line, word for word: wording that talked about the results made the voice say a
+      // made-up result instead of the line (seen live). The reply rule is in the session prompt.
+      `Say exactly this one short sentence aloud, word for word, and nothing else: "${step.text}" Then stop and wait for the user.`,
       null,
       undefined,
       "consent",
@@ -612,6 +633,9 @@ async function deliver() {
   const job = step.job;
   deliveriesBusy = true;
   try {
+    // A result the user just said yes to goes at once; save that yes first, so the records show the
+    // result injected after the user's yes (plan 1b/7b), not before its transcript arrived.
+    if (step.accepted || step.resume) await flushTranscript();
     const { offer } = await api("/api/delivery", {
       conversation,
       session,
@@ -1009,10 +1033,12 @@ async function typed() {
   updateJob(result.job);
   append(
     "session.thinking.append",
-    `The user typed: ${text}. Hermes is working on it.`,
+    // Quiet context, not an instruction: the voice once carried a typed request out itself, made up
+    // its result and then read the real one (said twice, seen live).
+    `Quiet context, not a request to speak: the user typed a request in the text box and the app has handed it to Hermes. Do not carry it out, answer it or guess its result yourself, and say nothing about it now; the app supplies the result when it is ready. The typed request: "${text}"`,
     null,
     undefined,
-    "job-status",
+    "typed",
   );
 }
 $("startBtn").onclick = () => {

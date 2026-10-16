@@ -39,9 +39,17 @@ test("1b: an earlier result is spoken only after the user says yes", () => {
   p.sent(p.next(jobs, 10_000, false), 10_000);
   p.assistantSpeech(said(0, 2000), 10_100);
   assert.equal(p.userSpeech(user("Yes, tell me.", 70_000), 70_000), null, "judged on the whole turn");
-  assert.equal(p.next(jobs, 70_000 + PAUSE_MS - 1, false), null, "waits for the pause");
+  // A clear short yes counts at once and the accepted result goes at once, even while the voice
+  // says "Okay" (any wait left the voice room to make up its own version, seen live).
+  assert.equal(p.next(jobs, 70_050, true).job.id, "old1");
   assert.equal(p.settled, "consent");
-  assert.equal(p.next(jobs, 70_000 + PAUSE_MS, false).job.id, "old1");
+  // A longer reply that only starts with yes is judged on the whole turn, after it settles.
+  const q = call();
+  q.sent(q.next(jobs, 10_000, false), 10_000);
+  q.assistantSpeech(said(0, 2000), 10_100);
+  q.userSpeech(user("Yes, but first tell me what time it is in Tokyo.", 70_000), 70_000);
+  assert.equal(q.next(jobs, 70_050, false), null);
+  assert.equal(q.settled, null, "not a clear yes: waits for the whole turn");
 });
 
 test("1b: no, or anything else, leaves earlier results unread", () => {
@@ -234,4 +242,136 @@ test("the page loads the delivery policy and no longer delivers any available jo
   assert.match(server, /"\/web\/delivery-policy\.js"/);
   assert.match(server, /store\.closeBacklog\(deliveryCutoff\)/);
   assert.doesNotMatch(live, /deliveryInFlight/);
+});
+
+test("double read: the voice handing the waiting-line 'yes, tell me' to the backend is answered by the app, not run again", () => {
+  const p = call();
+  const jobs = [done("old1", "before")];
+  assert.equal(p.waitingReply(1000), false, "before the waiting line, a handoff is real work");
+  const step = p.next(jobs, 10_000, false);
+  p.sent(step, 10_000);
+  p.assistantSpeech({ ...said(0, 2000), delta: "One thing finished while you were away. Want it?" }, 10_100);
+  p.userSpeech(user("Yes, tell me.", 61_000), 70_000);
+  assert.equal(p.waitingReply(70_100), true, "a handoff made by the yes, before it settles (seen live 0.6 s after the yes)");
+  p.next(jobs, 71_300, false);
+  assert.equal(p.settled, "consent");
+  p.assistantSpeech({ ...said(62_000, 62_400), delta: "Okay." }, 71_400);
+  assert.equal(p.waitingReply(72_000), true, "and just after, even once the voice has said okay");
+  assert.equal(p.waitingReply(82_000), false, "later handoffs are real work");
+  // A new user turn after the yes is a new request, handed off as usual.
+  const q = call();
+  q.sent(q.next(jobs, 10_000, false), 10_000);
+  q.userSpeech(user("Yes, tell me.", 61_000), 70_000);
+  q.next(jobs, 71_300, false);
+  q.assistantSpeech({ ...said(62_000, 62_400), delta: "Okay." }, 71_400);
+  q.userSpeech(user("And check the weather in Paris.", 64_000), 73_000);
+  assert.equal(q.waitingReply(73_100), false, "a request after the yes is new work");
+  // A different reply to the waiting line is not a yes.
+  const r = call();
+  r.sent(r.next(jobs, 10_000, false), 10_000);
+  r.userSpeech(user("No, what time is it in Tokyo?", 61_000), 70_000);
+  assert.equal(r.waitingReply(70_100), false, "a request instead of yes is handed off as usual");
+  const live = readFileSync(new URL("../../web/live.js", import.meta.url), "utf8");
+  assert.match(live, /if \(untranscribed \|\| delivery\.waitingReply\(Date\.now\(\)\)\) \{/);
+});
+
+test("double read: after a clear yes the first accepted result goes at once, not after a further pause; a stop or overlap still holds it", () => {
+  const jobs = [done("old1", "before"), done("old2", "before")];
+  const p = call();
+  p.sent(p.next(jobs, 10_000, false), 10_000);
+  p.assistantSpeech(said(0, 2000), 10_100);
+  p.userSpeech(user("Yes, tell me.", 61_000), 70_000);
+  const step = p.next(jobs, 70_100, true);
+  assert.equal(p.settled, "consent");
+  assert.equal(step?.kind, "result", "at once after a clear yes, even while the voice says okay");
+  assert.equal(step.job.id, "old1");
+  p.sent(step, 71_300);
+  jobs[0].delivery = "offered";
+  p.assistantSpeech(said(63_000, 66_000), 72_000);
+  assert.equal(p.next(jobs, 72_300, false), null, "the second one still waits for its own pause");
+  assert.equal(p.next(jobs, 75_000, false)?.job.id, "old2");
+  // A voice that talks over the yes holds delivery (Fix 1 1f), and a stop locks it.
+  const q = call();
+  q.sent(q.next(jobs.map((j) => ({ ...j, delivery: "available" })), 10_000, false), 10_000);
+  q.assistantSpeech(said(0, 2000), 10_100);
+  q.assistantSpeech(said(61_100, 62_000), 70_000);
+  q.userSpeech(user("Yes, tell me.", 61_000), 70_100);
+  assert.equal(q.next(jobs.map((j) => ({ ...j, delivery: "available" })), 71_400, false), null, "overlap hold still applies");
+  const r = call();
+  r.sent(r.next(jobs.map((j) => ({ ...j, delivery: "available" })), 10_000, false), 10_000);
+  r.userSpeech(user("Yes, tell me.", 61_000), 70_000);
+  r.next([], 71_300, false);
+  r.userSpeech(user("Stop.", 64_000), 72_000);
+  assert.equal(r.next(jobs.map((j) => ({ ...j, delivery: "available" })), 75_000, false), null, "stop still locks");
+});
+
+test("double read: a typed request reaches the voice as quiet context it must not carry out itself", () => {
+  const live = readFileSync(new URL("../../web/live.js", import.meta.url), "utf8");
+  const typed = live.slice(live.indexOf("async function typed()"));
+  assert.match(typed, /Quiet context, not a request to speak: the user typed a request/);
+  assert.match(typed, /Do not carry it out, answer it or guess its result yourself/);
+  assert.match(typed, /"typed",\n  \);/);
+  assert.doesNotMatch(live, /`The user typed: \$\{text\}\. Hermes is working on it\.`/);
+});
+
+test("double read: the rule for the reply to the waiting line is in the session instructions, not a mid-call instruction", () => {
+  const live = readFileSync(new URL("../../web/live.js", import.meta.url), "utf8");
+  const block = live.slice(live.indexOf('if (step.kind === "waiting") {'), live.indexOf('record("result.waiting.offered"'));
+  assert.doesNotMatch(block, /session\.instructions\.append/, "an instructions.append at the line made the voice talk (seen live)");
+  assert.match(block, /Say exactly this one short sentence aloud, word for word, and nothing else: "\$\{step\.text\}" Then stop and wait for the user\./);
+  assert.doesNotMatch(block, /`[^`]*result[^`]*`/, "the line's instruction does not talk about results");
+  const prompt = instructions("", []);
+  assert.match(prompt, /If the user says yes to it, answer only "Okay\." and nothing else, and never hand that yes to the backend/);
+  assert.match(prompt, /Never state, guess or make up a task result yourself, even one the earlier conversation suggests\./);
+});
+
+test("double read: a waiting line not answered before a drop is asked again in the new session, once", () => {
+  const jobs = [done("old1", "before")];
+  const p = call("s1");
+  const first = p.next(jobs, 10_000, false);
+  assert.equal(first.kind, "waiting");
+  p.sent(first, 10_000);
+  p.joinSession("s2"); // dropped before the user answered
+  const again = p.next(jobs, 20_000, false);
+  assert.equal(again?.kind, "waiting", "the new session asks again");
+  p.sent(again, 20_000);
+  assert.equal(p.next(jobs, 40_000, false), null, "once per session");
+  p.userSpeech(user("Yes, tell me.", 30_000), 50_000);
+  assert.equal(p.next(jobs, 51_300, false)?.job.id, "old1", "the yes in the new session reads it");
+  // An answered line is not asked again after a drop.
+  const q = call("s1");
+  q.sent(q.next(jobs, 10_000, false), 10_000);
+  q.userSpeech(user("No, not now.", 5000), 12_000);
+  q.next(jobs, 14_000, false);
+  assert.equal(q.settled, "declined");
+  q.joinSession("s2");
+  for (let t = 20_000; t < 60_000; t += 1000) assert.equal(q.next(jobs, t, false), null);
+});
+
+test("double read: a handoff of a reply the transcript missed is the yes, answered by the app, not run again", () => {
+  const jobs = [done("old1", "before")];
+  const p = call();
+  p.sent(p.next(jobs, 10_000, false), 10_000);
+  p.assistantSpeech({ ...said(0, 2000), delta: "One thing finished while you were away. Want it?" }, 10_100);
+  p.heard(15_000); // the microphone heard the user, but no transcript arrived
+  assert.equal(p.waitingReply(15_500), false);
+  assert.equal(p.acceptUntranscribedReply(15_500), true, "the handoff is the reply");
+  assert.equal(p.waitingReply(15_600), true, "a second handoff of the same reply is answered too");
+  assert.equal(p.next(jobs, 15_700, true)?.job.id, "old1", "the accepted result goes at once");
+  // Once any reply words are transcribed, they decide; a handoff then is judged on them.
+  const q = call();
+  q.sent(q.next(jobs, 10_000, false), 10_000);
+  q.userSpeech(user("No, what's the weather in Paris?", 5000), 15_000);
+  assert.equal(q.acceptUntranscribedReply(15_500), false);
+  assert.equal(q.waitingReply(15_500), false, "a real request is handed off as usual");
+  // Not waiting for a reply: never.
+  assert.equal(call().acceptUntranscribedReply(1000), false);
+  const live = readFileSync(new URL("../../web/live.js", import.meta.url), "utf8");
+  assert.match(live, /const untranscribed = delivery\.acceptUntranscribedReply\(Date\.now\(\)\);\n  if \(untranscribed \|\| delivery\.waitingReply\(Date\.now\(\)\)\) \{/);
+});
+
+test("double read judge: diacritics fold, so 'kākāpō' and 'kakapo' are the same key", async () => {
+  const { norm } = await import("../../scripts/live-e2e/double-read-judge.mjs");
+  assert.equal(norm("The test bird is the kākāpō."), norm("The test bird is the Kakapo."));
+  assert.equal(norm("spoon-billed sandpiper"), "spoon billed sandpiper");
 });
