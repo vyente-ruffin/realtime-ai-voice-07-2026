@@ -159,3 +159,7 @@ test("judge: a reading counts with the number spelled out or 'gigs'", () => {
     assert.equal(judgeConvo({ frags: x, marks, result: "38 GB free" }).checks.resultOnceEnglish.reads, 1, said);
   }
 });
+
+test("autotune: the call-start task status is for task questions; a greeting gets a greeting back", () => {
+  assert.match(instructions("", []), /Task status at the start of this call, only for a question about tasks; a greeting such as "how's it going\?" gets a greeting back, never task status \(results are supplied separately when the user should hear them\):\nTask status from the app[^\n]*No task is running now\./);
+});
