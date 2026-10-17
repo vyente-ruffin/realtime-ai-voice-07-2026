@@ -18,6 +18,8 @@ What made the difference: the app no longer sends the voice extra text while eit
 
 Still not perfect: the greeting is sometimes answered with "nothing's running right now" (2 in 10). Very rarely, words were missed with nothing sent nearby. The old `hermes-gateway-voice.service` is stopped and disabled.
 
+Tuning on Oct 17 ([autotune](docs/evidence/autotune.md)): two changes to Jarvis's instructions made test calls better. It stopped answering "how's it going?" with task status (0 in 20 calls, before 7 in 20), and it now usually mentions the result it just read out when asked what we were just talking about (it left it out in 5 of 20 calls, before 13 of 20). Those changes are on branch `autotune/oct17` but **not live**. In one of 10 pause tests the voice started answering just before the last word, while the live version got 10 of 10, so the change did not meet the bar for going live. The live service still runs build `15d58281245485b0`. The voice still often starts answering "what time is it in Tokyo right now?" before "right now" is heard (15 in 20 calls); a fix for that was tried and is not done yet.
+
 ## How it works
 
 ```mermaid
