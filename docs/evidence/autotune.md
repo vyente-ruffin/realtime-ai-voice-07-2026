@@ -398,3 +398,13 @@ was rebuilt from the handoff writer's saved snapshot and entry, and its sha256 m
 recorded hash (`8901e13f…`). The README lines were rebuilt from the Hermes patch tool records. `ledger.md`
 was rebuilt from an Oct 14 copy plus the Hermes read-back of lines 600-664; its byte size matches the
 recorded 87,297. Later discards saved and restored these three files around the reset.
+
+## Recheck (Oct 17, after the worker finished)
+
+The tuned instructions (`src/live/policy.js` from 386945b) were put live alone (build `f174394c619df048`, 208/208 tests) and the pause set rerun: `node scripts/live-e2e/fix5.mjs 5abc 10` (log `logs/live-e2e/autotune-recheck-fix5.log`):
+
+```
+SUMMARY 5a 8/10 (need 10/10) | 5b 6/10 (need 10/10) | 5c 10/10 (need >=4/5) | latencies ms [0,400,200,600,0,0,0,0,200,1000]
+```
+
+Across both sets the tuned build is 5b 15/20, against 10/10 for the live build. Decision: **not merged**. Live is back on `15d58281245485b0`; V's conversation got 0 new fragments (10/10 runs).
