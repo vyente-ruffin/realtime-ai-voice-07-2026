@@ -163,3 +163,7 @@ test("judge: a reading counts with the number spelled out or 'gigs'", () => {
 test("autotune: the call-start task status is for task questions; a greeting gets a greeting back", () => {
   assert.match(instructions("", []), /Task status at the start of this call, only for a question about tasks; a greeting such as "how's it going\?" gets a greeting back, never task status \(results are supplied separately when the user should hear them\):\nTask status from the app[^\n]*No task is running now\./);
 });
+
+test("autotune: a recap starts with the last thing said, such as a result just read out", () => {
+  assert.match(instructions("", []), /Recap policy: When the user asks what you were just talking about, start with the last thing you told them, such as a task result you just read out, then mention earlier topics; a stop is not a topic\./);
+});

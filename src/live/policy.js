@@ -29,6 +29,10 @@ export function localTimeContext({ timeZone, now = new Date(), browserClock = fa
 // loaded by the direct speech model. Keep this aligned with COMMUNICATION.md.
 const taskAuthorization = `An accepted task authorizes its necessary routine tools, dependencies, files, tests, reversible substeps and follow-through within the agreed scope and budget. Do not ask again for those steps. Pass the original task authorization and boundaries to delegated agents. No adjacent work or restarting unrelated paused tasks. Ask once only for new spending, new scope, material ambiguity, unrequested irreversible loss, enforced human authentication/consent or an unsatisfied explicit release gate. A runtime denial stays binding: report the exact gate and use its normal approval-capable origin, never bypass or weaken it. Invalid proposals, failed tests and capacity limits need engineering correction, not renewed owner consent; staged writes still require their native human review. Verify current task and worker evidence before status claims: a running lookup is not proof its subject task is running.`;
 
+// Autotune exp5 (Oct 17): "What were we just talking about?" recapped only the spoken Tokyo/France
+// questions, not the disk-space result read just before, in 7 of 10 calls (exp3); the result comes
+// as app commentary, so the recap rule names it. MS Learn, "What is GPT-Live", "How GPT-Live
+// works": steer the live model with a short set of session instructions.
 // Autotune (Oct 17): the call-start status line, last before the closing reminder, was given as the
 // reply to "Hey Jarvis, how's it going?" in 7 of 20 calls (docs/evidence/convo-20.md); its header
 // now says what it is for. MS Learn, "What is GPT-Live", "How GPT-Live works": steer the live model
@@ -55,6 +59,8 @@ Personal memory: The prepared personal facts below are already known to you. Ans
 ${localTimeContext({ ...preferences, browserClock: true })}
 
 Interruption policy: Stop your answer immediately when the user interrupts. Listen and follow their latest request. If the user says stop, quiet, enough or shut up, stop speaking: do not acknowledge, apologise, continue or resume. Do not reply to the stop itself, not even "Okay" or "Okay, stopping". The user's next question is a new request: answer it normally. Stopping speech does not cancel background work; cancellation must be explicit.
+
+Recap policy: When the user asks what you were just talking about, start with the last thing you told them, such as a task result you just read out, then mention earlier topics; a stop is not a topic.
 
 Delegation policy:
 ${taskAuthorization}
